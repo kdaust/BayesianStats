@@ -1,0 +1,46 @@
+---
+title: "Bayes A3"
+author: "Kiri Daust"
+date: "15/10/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(foreach)
+library(matrixStats)
+```
+
+```{r q1}
+fat_acc <- c(24,25,31,31,22,21,26,20,16,22)
+pass_death <- c(734,516,754,877,814,362,764,809,223,1066)
+
+avg <- 24
+alpha_p <- 12
+beta_p <- 2
+
+a_post <- alpha_p + sum(fat_acc)
+b_post <- beta_p + length(fat_acc) 
+xi <- seq(15,30,by= 0.01)
+yi <- dgamma(xi, a_post,b_post)
+plot(xi,yi, type = "l")
+
+n = 1000
+yrep <- foreach(i = 1:n, .combine = cbind) %do% {
+  theta <- rgamma(1,a_post,b_post)
+  reps <- rpois(10,theta)
+  reps
+}
+
+t1 <- colMeans(yrep)
+hist(t1)
+abline(v = mean(fat_acc))
+
+t2 <- colMins(yrep)
+hist(t2)
+abline(v = min(fat_acc))
+
+t3 <- colMaxs(yrep)
+hist(t3)
+abline(v = max(fat_acc))
+```

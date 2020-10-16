@@ -1,0 +1,145 @@
+---
+title: "Stats 460 A2"
+author: "Kiri Daust"
+date: "03/10/2020"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(latex2exp)
+library(foreach)
+```
+
+## Q3
+
+Given the data, we have that both $p_0$ and $p_1$ are binomially distributed. For conveniance, we will choose a conjuagte Beta distribution for the prior. Thus, a non-informative prior will be $\theta = \text{Beta}(\alpha = \beta = 1)$. Using Bayes' theorm, we then find the posterior: \[p(\theta|y) \propto \theta^{y+\alpha-1}(1-\theta)^{n-y+\beta-1} \] This is a $\text{Beta}(\alpha+y,n-y+\beta)$ distribution. The code below draws from the posterior distribution for the treatment and control group, and calculates the posterior distribution for the odds ratio. Quantiles of the posterior odds ratio are also displayed; the median odds ratio is about 0.55.
+
+
+```{r q3}
+n1 <- 674
+y1 <- 39
+n2 <- 680
+y2 <- 22
+
+### uninformative hyperparameters
+alpha <- 1
+beta <- 1
+
+##sample posterior distribution for treatment and control group
+post_1 <- rbeta(1e6, alpha+y1, n1-y1+beta)
+post_2 <- rbeta(1e6, alpha+y2, n2-y2+beta)
+
+hist(post_1, main = "Control Posterior")
+hist(post_2, main = "Treatment Posterior")
+
+odds_post <- (post_2/(1-post_2))/((post_1)/(1-post_1))
+hist(odds_post, main = "Posterior Odds Ratio")
+
+quantile(odds_post)
+```
+
+## Q4
+
+The problem follows the same general procedure as the rat problem from the textbook.Since the data are binomially distributed, we choose a conjugate beta posteriors for $\theta_j$. We then set up hyperparameters for the prior distribution, using the same method as the textbook authors, and setting the hyperprior distribution to $(\alpha+\beta)^{-5/2}$. I used the arithmetic mean and standard deviation to determine initial mid points for the grid of prior hyperparameters, and then adjusted the grid based on the contour plot below.
+
+We can see by comparing the simulated $\theta_j$ with the raw proportions, that they are fairly similar, but the bayesian analysis pulls everything slightly closer to the centre (the population mean), expecially where there are small sample sizes. 
+
+For part d, I haven't been able to sucessfully find the underlying value of theta, but I have written a method which I hope is partially correct.
+
+```{r q4}
+##data
+ni <- c(58,90,48,57,103,57,86,112,273,64)
+yi <- c(16,9,10,13,19,20,18,17,35,55)
+pi <- yi/ni
+
+##functions
+##log of marginal posterior
+log_margpost <- function(x, y, n){
+  a <- x[1]
+  b <- x[2]
+  log(a+b)*(-5/2) +
+  sum(lgamma(a+b)-lgamma(a)-lgamma(b)+lgamma(a+y)+lgamma(b+n-y)-lgamma(a+b+n))
+}
+
+### conditional posterior
+condition_post <- function(alpha, beta, yj, nj){
+  return(rbeta(1,alpha+yj,beta+nj-yj))
+}
+
+mean(pi)
+var(pi)
+alpha1 <- 0.83 ##initiall grid mid points
+beta1 <- 2.26
+
+##setup grid
+A <- seq(0.0001, 3, length.out = 100)
+B <- seq(0.0001, 7, length.out = 100)
+cA <- rep(A, each = length(B))
+cB <- rep(B, length(A))
+
+## simulate posterior probabilities for prios
+df_margpost <- data.frame(alpha = cA, beta = cB)
+df_margpost$p <- apply(df_margpost, 1, FUN = log_margpost, y = yi, n = ni)
+df_margpost$p_adj <-  exp(df_margpost$p - max(df_margpost$p))
+
+ggplot(data = df_margpost, aes(x = alpha, y = beta)) +
+  geom_raster(aes(fill = p_adj, alpha = p_adj), interpolate = T) +
+  geom_contour(aes(z = p_adj), colour = 'black', size = 0.2) +
+  labs(x = TeX('$\\alpha$'), y = TeX('$\\beta$'), title = "MarginalPosterior") +
+  scale_fill_gradient(low = 'yellow', high = 'red', guide = F) +
+  scale_alpha(range = c(0, 1), guide = F)
+
+###it all fits in ok, so we're good with that grid
+nsamp <- 1000
+##sample on the grid based on the posterior probabilities
+samp_indices <- sample(length(df_margpost$p_adj), size = nsamp,
+                       replace = T, prob = df_margpost$p_adj/df_margpost$p_adj)
+sampAlpha <- cA[samp_indices]
+sampBeta <- cB[samp_indices]
+
+## for each sample of hyperparameters, simulate the conditional posterior for theta_j
+res <- matrix(NA, ncol = length(yi), nrow = 1000)
+for(i in 1:1000){
+  currA <- sampAlpha[i]
+  currB <- sampBeta[i]
+  for(j in 1:length(yi)){
+    res[i,j] <- condition_post(alpha = currA, beta = currB, yi[j], ni[j])
+  }
+}
+theta_js <- colMeans(res)
+theta_js ##these are the bayesian posterior estimates
+pi ## these are the raw probabilities
+
+theta_quant <- foreach(j = 1:ncol(res), .combine = cbind) %do% {
+  quantile(res[,j], probs = c(0.025,0.25,0.5,0.75,0.975))
+}
+knitr::kable(theta_quant, digits = 2, caption = "Quantiles of theta_j posteriors")
+
+##95% posterior interval for underlying theta
+quantile(res, probs = c(0.025, 0.975)) ## I don't think this is right
+
+##I think this is more the correct method, but it gives obviously incorrect output
+##joint density - product of beta distributions for each alpha,beta, and thetaj
+join_post <- function(alpha,beta,y,n){
+  out <- foreach(j = 1:length(y), .combine = `*`) %do% {
+    bprob <- rbeta(1,alpha+y[j],beta+n[j]-y[j])
+    bprob
+  }
+  return(out)
+}
+
+##simulate joint density - this is obviously incorrect
+joint_res <- numeric(1000)
+for(i in 1:1000){
+  currA <- sampAlpha[i]
+  currB <- sampBeta[i]
+  currTheta <- res[i,]
+  joint_res[i] <- join_post(alpha = currA,beta = currB,y = yi,n = ni)
+}
+
+quantile(joint_res, probs = c(0.025, 0.975))
+```
