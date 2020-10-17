@@ -9,6 +9,8 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 library(foreach)
 library(matrixStats)
+library(ggplot2)
+library(latex2exp)
 ```
 
 ```{r q1}
@@ -43,4 +45,75 @@ abline(v = min(fat_acc))
 t3 <- colMaxs(yrep)
 hist(t3)
 abline(v = max(fat_acc))
+```
+
+```{r q2}
+##log of marginal posterior
+log_margpost <- function(x, y, n){
+  a <- x[1]
+  b <- x[2]
+  log(a+b)*(-5/2) +
+  sum(lgamma(a+b)-lgamma(a)-lgamma(b)+lgamma(a+y)+lgamma(b+n-y)-lgamma(a+b+n))
+}
+
+### conditional posterior
+condition_post <- function(alpha, beta, yj, nj){
+  return(rbeta(length(yj),alpha+yj,beta+nj-yj))
+}
+
+yi <- c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,2,2,2,2,2,2,2,2,
+        2,1,5,2,5,3,2,7,7,3,3,2,9,10,4,4,4,4,4,4,4,10,4,4,4,5,11,12,
+        5,5,6,5,6,6,6,6,16,15,15,9,4)
+ni <- c(20,20,20,20,20,20,20,19,19,19,19,18,18,17,20,20,20,20,19,19,18,18,25,24,
+       23,20,20,20,20,20,20,10,49,19,46,27,17,49,47,20,20,13,48,50,20,20,20,20,
+       20,20,20,48,19,19,19,22,46,49,20,20,23,19,22,20,20,20,52,46,47,24,14)
+
+##setup grid
+A <- seq(0.5, 5, length.out = 200)
+B <- seq(3, 30, length.out = 200)
+cA <- rep(A, each = length(B))
+cB <- rep(B, length(A))
+
+## simulate posterior probabilities for priors
+df_margpost <- data.frame(alpha = cA, beta = cB)
+df_margpost$p <- apply(df_margpost, 1, FUN = log_margpost, y = yi, n = ni)
+df_margpost$p_adj <-  exp(df_margpost$p - max(df_margpost$p))
+
+ggplot(data = df_margpost, aes(x = alpha, y = beta)) +
+  geom_raster(aes(fill = p_adj, alpha = p_adj), interpolate = T) +
+  geom_contour(aes(z = p_adj), colour = 'black', size = 0.2) +
+  labs(x = TeX('$\\alpha$'), y = TeX('$\\beta$'), title = "MarginalPosterior") +
+  scale_fill_gradient(low = 'yellow', high = 'red', guide = F) +
+  scale_alpha(range = c(0, 1), guide = F)
+
+###it all fits in ok, so we're good with that grid
+nsamp <- 1000
+##sample on the grid based on the posterior probabilities
+samp_indices <- sample(length(df_margpost$p_adj), size = nsamp,
+                       replace = T, prob = df_margpost$p_adj/df_margpost$p_adj)
+sampAlpha <- cA[samp_indices]
+sampBeta <- cB[samp_indices]
+
+## for each sample of hyperparameters, simulate the conditional posterior for theta_j
+res <- matrix(NA, ncol = length(yi), nrow = 1000)
+for(i in 1:1000){
+  currA <- sampAlpha[i]
+  currB <- sampBeta[i]
+  for(j in 1:length(yi)){
+    res[i,j] <- condition_post(alpha = currA, beta = currB, yi[j], ni[j])
+  }
+}
+
+out <- foreach(a = 1:200, .combine = cbind) %do% {
+  currA <- sampAlpha[a]
+  currB <- sampBeta[a]
+  foreach(b = 1:200, .combine = cbind) %do% {
+    thetas <- condition_post(currA,currB,yi,ni)
+    foreach(c = 1:20, .combine = cbind) %do% {
+      yrep <- rbinom(length(yi),size = ni, prob = thetas)
+    }
+  }
+}
+
+
 ```
