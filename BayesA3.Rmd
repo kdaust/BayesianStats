@@ -1,8 +1,11 @@
 ---
-title: "Bayes A3"
+title: "Bayesian Stats HW3"
 author: "Kiri Daust"
+subtitle: "V00883780"
 date: "15/10/2020"
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -11,44 +14,155 @@ library(foreach)
 library(matrixStats)
 library(ggplot2)
 library(latex2exp)
+library(data.table)
+library(dplyr)
+library(magrittr)
 ```
 
+## Q1
+
+First, I'm just setting up some functions and loading the data.
+
 ```{r q1}
+meanHist <- function(yrep,y){
+  t1 <- colMeans(yrep)
+  datVal <- mean(y)
+  p <- length(t1[t1 <= datVal])/length(t1)
+  hist(t1, main = paste0("Mean, p = ", p), 
+       xlim = c(min(min(t1),datVal),max(max(t1),datVal)),xlab = "Value")
+  abline(v = datVal, col = "red")
+}
+
+minHist <- function(yrep,y){
+  t1 <- colMins(yrep)
+  datVal <- min(y)
+  p <- length(t1[t1 <= datVal])/length(t1)
+  hist(t1, main = paste0("Min, p = ", p),
+       xlim = c(min(min(t1),datVal),max(max(t1),datVal)),
+       xlab = "Value")
+  abline(v = datVal, col = "red")
+}
+
+maxHist <- function(yrep,y){
+  t1 <- colMaxs(yrep)
+  datVal <- max(y)
+  p <- length(t1[t1 <= datVal])/length(t1)
+  hist(t1, main = paste0("Max, p = ", p),
+       xlim = c(min(min(t1),datVal),max(max(t1),datVal)),
+       xlab = "Value")
+  abline(v = datVal, col = "red")
+}
+
 fat_acc <- c(24,25,31,31,22,21,26,20,16,22)
 pass_death <- c(734,516,754,877,814,362,764,809,223,1066)
+drate <- c(0.19,0.12,0.15,0.16,0.14,0.06,0.13,0.13,0.03,0.15)
+pass_miles <- pass_death/drate
 
-avg <- 24
-alpha_p <- 12
-beta_p <- 2
+```
 
-a_post <- alpha_p + sum(fat_acc)
-b_post <- beta_p + length(fat_acc) 
-xi <- seq(15,30,by= 0.01)
-yi <- dgamma(xi, a_post,b_post)
-plot(xi,yi, type = "l")
+I looked at airline data for 1974 and 1975 (mostly from https://www.census.gov/library/publications/1974/compendia/statab/95ed.html) to try and create weakly informative prior distributions for $\theta$. I show below the distributions of the priors for both fatal accidents and passenger deaths.
 
-n = 1000
+```{r 1.1, fig.width=4, fig.height=3.5}
+
+##priors based on 1974 data
+acc_alpha_p <- 12
+acc_beta_p <- 0.5
+pd_alpha_p <- 5
+pd_beta_p <- 1/90
+
+xi <- seq(5,50,by= 0.01)
+yi <- dgamma(xi, acc_alpha_p,acc_beta_p)
+x1 <- seq(100,900,by= 0.5)
+y2 <- dgamma(x1, pd_alpha_p,pd_beta_p)
+
+plot(xi,yi, type = "l", main = "Fatal Accident Prior")
+plot(x1,y2, type = "l", main = "Passenger Death Prior")
+```
+
+Since fatal accidents follow a poisson distribution, we have a gamma prior (above) and thus a gamma posterior. I simulate values of $\theta$ from the gamma posterior and then use these to simulate $y^{rep}$. Our first simulation is for fatal accidents with a standard poisson model. 
+
+I use the minimum, mean, and maximum as the test statistics. Based on the graphs and the p-values, it looks like this model is good. In general the actual data value (the red line) is close the the median of the simulations.
+
+```{r 1.2, fig.height=3.5, fig.width = 8}
+
+n = 10000
 yrep <- foreach(i = 1:n, .combine = cbind) %do% {
-  theta <- rgamma(1,a_post,b_post)
+  theta <- rgamma(1,acc_alpha_p,acc_beta_p)
   reps <- rpois(10,theta)
   reps
 }
 
-t1 <- colMeans(yrep)
-hist(t1)
-abline(v = mean(fat_acc))
-
-t2 <- colMins(yrep)
-hist(t2)
-abline(v = min(fat_acc))
-
-t3 <- colMaxs(yrep)
-hist(t3)
-abline(v = max(fat_acc))
+par(mfrow = c(1,3))
+minHist(yrep,fat_acc)
+meanHist(yrep,fat_acc)
+maxHist(yrep,fat_acc)
 ```
 
+We now analyse the same data, but now using a poisson model parameterised by rate and exposure (passenger miles). We use the same prior distribution as above, and do similar simulations.
+
+Again, it looks like this model fits well given the test statistics. However, the p-values are smaller (or bigger) than the previous model, so it may not be quite as appropriate.
+
+```{r 1.3, fig.height=3.5, fig.width = 8}
+###########
+n = 10000
+yrep <- foreach(i = 1:n, .combine = cbind) %do% {
+  theta <- rgamma(1,acc_alpha_p+sum(fat_acc),acc_beta_p + sum(pass_miles))
+  reps <- rpois(10,theta * pass_miles)
+  reps
+}
+
+par(mfrow = c(1,3))
+minHist(yrep,fat_acc)
+meanHist(yrep,fat_acc)
+maxHist(yrep,fat_acc)
+
+```
+
+We now repeat the analysis using the previous two models, but this time using passenger deaths instead of fatal accidents. We of course use a different prior, and proceed as above.
+
+In this case, it looks like the poisson model isn't a good fit for the data. Although the mean test statistic looks good, the min and max test statistics are a long way away from the $y^{rep}$ data.The modelled data doesn't have as big a range as the actual data.
+
+```{r 1.4,fig.height=3.5, fig.width = 8}
+
+###########
+n = 10000
+yrep <- foreach(i = 1:n, .combine = cbind) %do% {
+  theta <- rgamma(1,pd_alpha_p + sum(pass_death),pd_beta_p + length(pass_death))
+  reps <- rpois(10,theta)
+  reps
+}
+
+par(mfrow = c(1,3))
+minHist(yrep,pass_death)
+meanHist(yrep,pass_death)
+maxHist(yrep,pass_death)
+```
+
+Finally, we again use the rate and exposure poisson model, but this time with passenger death. Here, the reparameterisation improves the model, but not enough. Although the actual min and max are closer to the modeled data than in the previous example, they are obviously not from the same distribution.
+
+```{r 1.5, fig.height=3.5, fig.width = 8}
+
+###########
+n = 10000
+yrep <- foreach(i = 1:n, .combine = cbind) %do% {
+  theta <- rgamma(1,pd_alpha_p + sum(pass_death),pd_beta_p + sum(pass_miles))
+  reps <- rpois(10,theta * pass_miles)
+  reps
+}
+
+par(mfrow = c(1,3))
+minHist(yrep,pass_death)
+meanHist(yrep,pass_death)
+maxHist(yrep,pass_death)
+
+```
+
+## Q2
+
+In this questions, we're asked to check the model used in the rat tumor example. A lot of the initial code here is adapted from the textbook example. First, we define some functions, load the data, and set up a grid to sample the hyperparameters $\alpha$ and $\beta$ from. The contour plot below shows their distributions in the grid, to ensure the grid captures most of the range.
+
 ```{r q2}
-##log of marginal posterior
+##log of marginal posterior for prior density
 log_margpost <- function(x, y, n){
   a <- x[1]
   b <- x[2]
@@ -56,10 +170,6 @@ log_margpost <- function(x, y, n){
   sum(lgamma(a+b)-lgamma(a)-lgamma(b)+lgamma(a+y)+lgamma(b+n-y)-lgamma(a+b+n))
 }
 
-### conditional posterior
-condition_post <- function(alpha, beta, yj, nj){
-  return(rbeta(length(yj),alpha+yj,beta+nj-yj))
-}
 
 yi <- c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,2,2,2,2,2,2,2,2,
         2,1,5,2,5,3,2,7,7,3,3,2,9,10,4,4,4,4,4,4,4,10,4,4,4,5,11,12,
@@ -67,6 +177,7 @@ yi <- c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,2,2,2,2,2,2,2,2,
 ni <- c(20,20,20,20,20,20,20,19,19,19,19,18,18,17,20,20,20,20,19,19,18,18,25,24,
        23,20,20,20,20,20,20,10,49,19,46,27,17,49,47,20,20,13,48,50,20,20,20,20,
        20,20,20,48,19,19,19,22,46,49,20,20,23,19,22,20,20,20,52,46,47,24,14)
+pi <- yi/ni
 
 ##setup grid
 A <- seq(0.5, 5, length.out = 200)
@@ -86,34 +197,130 @@ ggplot(data = df_margpost, aes(x = alpha, y = beta)) +
   scale_fill_gradient(low = 'yellow', high = 'red', guide = F) +
   scale_alpha(range = c(0, 1), guide = F)
 
+```
+
+Now, we simulate the $y^{rep}$ vectors. First, we sample the hyperpriors from the grid. Then, for each set of hyperpriors, we use the beta distribution to simulate $\theta_j$. Note that since the experiments are all different, there is a different $\theta$ for each experiment. Once we have the vectors of $\theta_j$, we use those to simulate $y^{rep}$ using the binomial distribution. This simulation results in a matrix of $y^{rep}$ vectors, and we define test statistics to check the model. 
+
+For test statistics, we will use mean, maximum, standard deviation, and the number of experiments with zero deaths. Since all the experiments have different sample sizes, we will also convert the modeled data to proportions, and look and the number of experiments with > 25% mortality.
+
+It looks like the assumed model is good in this case. All 5 of the test statistics fall well within the modeled range, and the p-values are close to 0.5.
+
+```{r 2.1, fig.height=8, fig.width = 8}
+
 ###it all fits in ok, so we're good with that grid
-nsamp <- 1000
+nsamp <- 20
 ##sample on the grid based on the posterior probabilities
 samp_indices <- sample(length(df_margpost$p_adj), size = nsamp,
                        replace = T, prob = df_margpost$p_adj/df_margpost$p_adj)
 sampAlpha <- cA[samp_indices]
 sampBeta <- cB[samp_indices]
 
-## for each sample of hyperparameters, simulate the conditional posterior for theta_j
-res <- matrix(NA, ncol = length(yi), nrow = 1000)
-for(i in 1:1000){
-  currA <- sampAlpha[i]
-  currB <- sampBeta[i]
-  for(j in 1:length(yi)){
-    res[i,j] <- condition_post(alpha = currA, beta = currB, yi[j], ni[j])
-  }
-}
 
-out <- foreach(a = 1:200, .combine = cbind) %do% {
+out <- foreach(a = 1:20, .combine = cbind) %do% {
   currA <- sampAlpha[a]
   currB <- sampBeta[a]
-  foreach(b = 1:200, .combine = cbind) %do% {
-    thetas <- condition_post(currA,currB,yi,ni)
-    foreach(c = 1:20, .combine = cbind) %do% {
+  foreach(b = 1:30, .combine = cbind) %do% {
+    thetas <- rbeta(length(yi),currA+yi,currB+ni-yi)
+    foreach(c = 1:30, .combine = cbind) %do% {
       yrep <- rbinom(length(yi),size = ni, prob = thetas)
     }
   }
 }
 
+library(matrixStats)
+t1 <- colMeans(out)
+tdat1 <- mean(yi)
+p1 <- round(length(t1[t1 <= tdat1])/length(t1),digits = 2)
 
+t2 <- colMaxs(out)
+tdat2 <- max(yi)
+p2 <- round(length(t2[t2 <= tdat2])/length(t2),digits = 2)
+
+t3 <- colSds(out)
+tdat3 <- sd(yi)
+p3 <- round(length(t3[t3 <= tdat3])/length(t3),digits = 2)
+
+t4 <- apply(out,2,FUN = function(x){length(x[x == 0])})
+tdat4 <- length(yi[yi == 0])
+p4 <- round(length(t4[t4 <= tdat4])/length(t4),digits = 2)
+
+out2 <- apply(out,2,FUN = function(x){x/ni})
+t5 <- apply(out2,2,FUN = function(x){length(x[x > 0.25])})
+tdat5 <- length(pi[pi > 0.25])
+p5 <- round(length(t5[t5 <= tdat5])/length(t5),digits = 2)
+
+par(mfrow = c(3,2))
+
+hist(t1,main = paste0("Mean, p = ",p1),xlab = "# Dead")
+abline(v = tdat1, col = "red")
+
+hist(t2,main = paste0("Max, p = ",p2),xlab = "# Dead")
+abline(v = tdat2, col = "red")
+
+hist(t3,main = paste0("Sd, p = ",p3),xlab = "Standard Deviation")
+abline(v = tdat3, col = "red")
+
+hist(t4,main = paste0("0 Mortality, p = ",p4),xlab = "# 0 Mortality")
+abline(v = tdat4, col = "red")
+
+hist(t5,main = paste0("> 25% Mortality, p = ",p5),xlab = "Proportion > 25% Mortality")
+abline(v = tdat5, col = "red")
+
+```
+
+## Q3
+
+This question investigates the effect of five different prior distributions on the beta-blockers experiment. Because the data follow a binomial distribution, we use conjugate beta priors. The hyperparameters chosen are as follows:
+
+1. $\alpha_1 = \beta_1 = \alpha_2 = \beta_2 = 1$ (Uninformative uniform prior)
+2. $\alpha_1 = 2, \beta_1 = 60, \alpha_2 = 2, \beta_2 = 25$: This is an informative prior which roughly matches the proportions in the data.
+3. $\alpha_1 = 2, \beta_1 = 25, \alpha_2 = 2, \beta_2 = 60$: This is the same as #2, but the distributions are flipped around (i.e. our prior expectations are that the treatment increases mortality rate)
+4. $\alpha_1 = 2, \beta_1 = 5, \alpha_2 = 2, \beta_2 = 5$: This is a non-sensical informative prior, but it is identical for the treatment and control.
+5. $\alpha_1 = 6, \beta_1 = 5, \alpha_2 = 2, \beta_2 = 60$: This is a non-sensical prior, completely in the opposite direction as the data.
+
+We sample from the beta posterior for each prior distribution, and present quantiles of the results. I also present a graph comparing the densities of the odds ratio for each prior.
+
+I find it shocking how little difference the prior distributions make to the posterior in this example. All 5 densities of the odds ratio are very similar. As expected, #5 with the drastic prior pushes the odds ratio slightly lower, but not nearly as much as I had anticipated. Pri2 and Pri3, with opposite priors are different, but not by much, and the density for #4 is almost exactly the same as with the uniform prior. 
+
+```{r q3}
+##data
+n1 <- 674
+y1 <- 39
+n2 <- 680
+y2 <- 22
+
+### uninformative hyperparameters
+pri1 <- c("a1" = 1,"b1" = 1,"a2" = 1,"b2" = 1)
+
+##v2
+pri2 <- c("a1" = 2,"b1" = 60,"a2" = 2,"b2" = 25)
+
+##v3
+pri3 <- c("a1" = 2,"b1" = 25,"a2" = 2,"b2" = 60)
+
+##v4
+pri4 <- c("a1" = 2,"b1" = 5,"a2" = 2,"b2" = 5)
+
+##v5
+pri5 <- c("a1" = 6,"b1" = 5,"a2" = 2,"b2" = 60)
+
+##sample posterior distribution for treatment and control group
+priors <- list(pri1,pri2,pri3,pri4,pri5)
+out <- foreach(pri = priors, .combine = cbind) %do% {
+  cat("\n", pri, "\n")
+  post_1 <- rbeta(1e6, pri[1]+y1, n1-y1+pri[2])
+  post_2 <- rbeta(1e6, pri[3]+y2, n2-y2+pri[4])
+  print(quantile(post_1, c(0.05,0.25,0.5,0.75,0.95)))
+  print(quantile(post_2, c(0.05,0.25,0.5,0.75,0.95)))
+  (post_2/(1-post_2))/((post_1)/(1-post_1))
+}
+
+out <- as.data.table(out)
+setnames(out,c("Pri1","Pri2","Pri3","Pri4","Pri5"))
+out <- data.table::melt(out)
+out[,Prior := as.factor(variable)]
+
+ggplot(out, aes(x = value, col = Prior))+
+  geom_density()+
+  labs(x = "Odds Ratio")
 ```
