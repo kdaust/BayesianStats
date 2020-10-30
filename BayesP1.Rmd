@@ -1,0 +1,44 @@
+---
+title: "Stats 460 Project 1"
+author: "Kiri Daust"
+date: "30/10/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r f}
+data("stackloss")
+
+mod1 <- lm(stack.loss ~ 0 + Air.Flow, data = stackloss)
+plot(stack.loss ~ Air.Flow, data = stackloss)
+abline(mod1)
+plot(mod1$residuals)
+x <- stackloss$Air.Flow
+y <- stackloss$stack.loss
+
+resid <- mod1$residuals
+delta0 <- 0.0019
+gamma0 <- 0.2
+muhat <- sum(x*y)/sum(x^2)
+
+tau_post <- function(x,y,mu,delta0,gamma0){
+  alpha <- delta0/2
+  beta <- 0.5*(mu^2+sum(y^2)+gamma0+(mu+sum(x*y))^2/(sum(x^2)+1))
+  return(c("alpha" = alpha, "beta" = beta))
+}
+
+tau_params <- tau_post(x,y,muhat,delta0,gamma0)
+tau_mean <- tau_params[1]/tau_params[2]
+
+beta_post <- function(x,y,muhat,delta0,gamma0){
+  mu <- (muhat+sum(x*y))/(sum(x^2)+1)
+  sigma <- (gamma0+gamma0*sum(x^2)+sum(y^2)+muhat^2*sum(x^2)-2*muhat*sum(x*y))/(delta0*(sum(x^2)+1)^2)
+  return(c("mu" = mu, "sigma2" = sigma))
+}
+
+beta_params <- beta_post(x,y,muhat,delta0,gamma0)
+beta_sample <- rt()
+```
