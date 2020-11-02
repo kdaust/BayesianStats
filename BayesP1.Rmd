@@ -23,6 +23,24 @@ Expanding the squares and combining terms then gives \[p(\beta,\tau|y) = {\tau^{
 
 c) To find the conditional distribution, we think of $\tau$ as a constant, and thus have $p(\beta|\tau,y) \propto p(\beta|\tau)p(y|\beta,\tau)$. By multiplying the distributions, we get \[p(\beta|\tau,y) \propto e^{-\frac{1}{2}\tau[(\beta-\mu)^2+\sum(y_i-\beta x_i)^2]} \\ \propto e^{-\frac{1}{2}\tau[\beta^2(\sum x_i^2+1) - 2\beta(\mu-\sum(x_i y_i))]} \\ \propto e^{-\frac{1}{2}\tau(\sum x_i^2 + 1)(\beta - \frac{\mu - \sum x_i y_i}{\sum x_i^2 + 1})^2} \\ \propto N(\frac{\mu - \sum x_i y_i}{\sum x_i^2 + 1},\tau(\sum x_i^2+1))\]
 
+d) To find the marginal posterior distribution, $p(\beta|y)$ we need to integrate the joint posterior distribution over $\tau$. 
+
+\[p(\beta|y) \propto \int{p(\beta,\tau|y)}d\tau \\
+ \int{\tau^{\frac{\delta_0 - 1}{2}}e^{-\frac{1}{2}\tau(\gamma_0+(\beta-\mu)^2+\sum(y_i+\beta x_i)^2)}}d\tau\]
+ 
+We note that the integrand here is the kernal of a Gamma density, and normailise it so the integral = 1. We are left with:
+
+\[p(\beta|y) \propto \frac{\Gamma(\frac{\delta_0+1}{2})}{(\beta^2(\sum x_i^2 +1)-2\beta(\mu+\sum{x_iy_i})+\mu^2+\sum y_i^2+\gamma_0)^{(\delta_0+1)/2}}\]
+
+Which after removing constants and completing the square starts to look like the kernal of a t-distribution:
+
+\[p(\beta|y) \propto \left[ \left(\beta - \frac{\mu+\sum x_i y_i}{\sum x_i^2} \right)^2(\sum x_i^2 +1) - \frac{\mu^2+2\mu\sum{x_iy_i}+(\sum x_iy_i)^2}{\sum{x_i^2 + 1}} + \mu^2+\sum{y_i^2}+\gamma_0 \right]^{-\frac{\delta_0+1}{2}} \\ 
+\propto \left[ \left(\beta - \frac{\mu+\sum x_i y_i}{\sum x_i^2} \right)^2(\sum x_i^2 +1)^2 + (\gamma_0 + \gamma_0\sum{x_i^2}+\sum{y_i^2}+\mu^2\sum x_i^2-2\mu\sum{x_iy_i}) \right]^{-\frac{\delta_0+1}{2}} \\
+\propto \left[ 1+ \frac{1}{\delta_0} \frac{\left(\beta - \frac{\mu+\sum x_i y_i}{\sum x_i^2} \right)^2 \delta_0}{(\sum x_i^2 +1)^{-2} + \gamma_0 + \gamma_0\sum{x_i^2}+\sum{y_i^2}+\mu^2\sum x_i^2-2\mu\sum{x_iy_i}} \right]^{-\frac{\delta_0+1}{2}}\]
+
+This is the kernal of a t-distribution.
+
+e) 
 
 
 
