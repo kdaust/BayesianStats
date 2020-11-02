@@ -7,7 +7,24 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+library(foreach)
+library(ggplot2)
 ```
+
+a) We can easily find the least squares estimate for $\mu$ by minimising the sums of squares. This gives us that \[\mu = \frac{\sum_{i=1}^n x_iy_i}{\sum_{i=1}^n x_i^2}\]
+
+For this project, we will now assume that $\mu$ is fixed at this values.
+
+b) We know from Bayes' formula that $p(\beta,\tau|y) \propto p(\tau)p(\beta|\tau)p(y|\beta,\tau)$. We know that $p(\tau) = Gamma(\delta_0/2,\gamma_0/2), p(\beta|\tau) = N(\mu,1/\tau)$ and the likelihood is $p(y) = \prod_{i = 1}^n N(\beta x_i, 1/\tau)$. 
+
+Multiplying these together (and removing constants) gives \[p(\beta,\tau|y) = \tau^{\frac{\delta_0}{2} - 1}e^{-\frac{1}{2}\tau\gamma_0}e^{-\frac{1}{2}(\beta-\mu)^2\tau}e^{-\frac{1}{2}\sum(y_i-\beta x_i)^2\tau}\]
+
+Expanding the squares and combining terms then gives \[p(\beta,\tau|y) = {\tau^{\frac{\delta_0 - 1}{2}}e^{-\frac{1}{2}\tau(\gamma_0+(\beta-\mu)^2+\sum(y_i+\beta x_i)^2)}} \\ = Gamma(\frac{\delta_0+1}{2},\frac{1}{2}\tau(\gamma_0+(\beta-\mu)^2+\sum(y_i+\beta x_i)^2)\]
+
+c) To find the conditional distribution, we think of $\tau$ as a constant, and thus have $p(\beta|\tau,y) \propto p(\beta|\tau)p(y|\beta,\tau)$. By multiplying the distributions, we get \[p(\beta|\tau,y) \propto e^{-\frac{1}{2}\tau[(\beta-\mu)^2+\sum(y_i-\beta x_i)^2]} \\ \propto e^{-\frac{1}{2}\tau[\beta^2(\sum x_i^2+1) - 2\beta(\mu-\sum(x_i y_i))]} \\ \propto e^{-\frac{1}{2}\tau(\sum x_i^2 + 1)(\beta - \frac{\mu - \sum x_i y_i}{\sum x_i^2 + 1})^2} \\ \propto N(\frac{\mu - \sum x_i y_i}{\sum x_i^2 + 1},\tau(\sum x_i^2+1))\]
+
+
+
 
 ```{r f}
 data("stackloss")
@@ -25,13 +42,91 @@ gamma0 <- 0.2
 muhat <- sum(x*y)/sum(x^2)
 
 tau_post <- function(x,y,mu,delta0,gamma0){
-  alpha <- delta0/2
-  beta <- (mu^2+sum(y^2)+gamma0-((mu+sum(x*y))^2))/2
+  alpha <- (delta0 + length(y))/2
+  beta <- (mu^2+sum(y^2)+gamma0-((mu+sum(x*y))^2)/(sum(x^2)+1))/2
   return(c("alpha" = alpha, "beta" = beta))
 }
 
 tau_params <- tau_post(x,y,muhat,delta0,gamma0)
 tau_mean <- tau_params[1]/tau_params[2]
 1/tau_mean
+tau_sim <- rgamma(100,tau_params[1],tau_params[2])
+hist(tau_sim)
+
+beta_cond_post <- function(x,y,muhat,tau){
+  mu <- (muhat + sum(x*y))/((sum(x^2)+1))
+  sigma2 <- 1/(tau*(sum(x^2)+1))
+  return(c(mu,sigma2))
+}
+
+##beta_params <- beta_cond_post(x,y,muhat,0.016)
+
+beta_sim <- foreach(i = 1:100, .combine = c) %do% {
+  beta_params <- beta_cond_post(x,y,muhat,tau_sim[i])
+  rnorm(100, beta_params[1],sqrt(beta_params[2]))
+}
+hist(beta_sim)
+mean(beta_sim)
+var(beta_sim)
+quantile(beta_sim, c(0.05,0.25,0.5,0.75,0.95))
+```
+
+```{r g}
+tau_post <- function(x,y){
+  alpha <- (length(y)-1)/2
+  beta <- (sum(y^2) - (sum(x*y))^2/(sum(x^2)))/2
+  return(c("alpha" = alpha, "beta" = beta))
+}
+
+tau_params <- tau_post(x,y)
+tau_mean <- tau_params[1]/tau_params[2]
+tau_sim_v2 <- rgamma(100,tau_params[1],tau_params[2])
+hist(tau_sim_v2)
+
+beta_cond_post <- function(x,y,muhat,tau){
+  mu <- (muhat + sum(x*y))/((sum(x^2)+1))
+  sigma2 <- 1/(tau*(sum(x^2)+1))
+  return(c(mu,sigma2))
+}
+
+beta_sim_v2 <- foreach(i = 1:100, .combine = c) %do% {
+  beta_params <- beta_cond_post(x,y,muhat,tau_sim_v2[i])
+  rnorm(100, beta_params[1],sqrt(beta_params[2]))
+}
+hist(beta_sim_v2)
+
+dat <- data.frame(Prior = rep(c("Prior1","Prior2"), each = 10000), Sims = c(beta_sim, beta_sim_v2))
+
+ggplot(dat, aes(x = Sims, colour = as.factor(Prior)))+
+  geom_density()
+
+```
+
+```{r h}
+yreps <- foreach(b = 1:10000, .combine = cbind) %do% {
+    tCurr <- tau_sim[ceiling(b/100)]
+    bCurr <- beta_sim[b]
+    yrep <- rnorm(length(x),mean = bCurr*x, sd = sqrt(1/tCurr))
+    yrep
+}
+
+library(matrixStats)
+t1 <- colMeans(yreps)
+d1 <- mean(y)
+t2 <- colMaxs(yreps)
+d2 <- max(y)
+t3 <- colMins(yreps)
+d3 <- min(y)
+t4 <- colSds(yreps)
+d4 <- sd(y)
+
+hist(t1, main = "Mean")
+abline(v = d1, col = "red")
+hist(t2, main = "Max")
+abline(v = d2, col = "red")
+hist(t3, main = "Min")
+abline(v = d3, col = "red")
+hist(t4, main = "Sd")
+abline(v = d4, col = "red")
 
 ```

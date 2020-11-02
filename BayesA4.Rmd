@@ -1,0 +1,173 @@
+---
+title: "Bayesian Stats A4"
+subtitle: "V00883780"
+author: "Kiri Daust"
+date: "01/11/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(foreach)
+library(ggplot2)
+library(data.table)
+```
+
+This assignment will compute various predictive accuracy statistics for the beta-blocker meta analysis. Most of the script setting up the model is an adaption of Michelle's example R script.
+
+## Model Fitting
+
+```{r 1.0}
+
+y_control <- c(3, 14, 11, 127, 27, 6, 152, 48, 37, 188, 52, 47, 16, 45, 31, 
+38, 12, 6, 3, 40, 43, 39)
+y_trt <- c(3, 7, 5, 102, 28, 4, 98, 60, 25, 138, 64, 45, 9, 57, 25, 33, 
+28, 8, 6, 32, 27, 22)
+n_control <- c(39, 116, 93, 1520, 365, 52, 939, 471, 282, 1921, 583, 266, 
+293, 883, 147, 213, 122, 154, 134, 218, 364, 674)
+n_trt <- c(38, 114, 69, 1533, 355, 59, 945, 632, 278, 1916, 873, 263, 
+291, 858, 154, 207, 251, 151, 174, 209, 391, 680)
+
+
+#Compute log of the odds ratio
+logs_trt <- log(y_trt/(n_trt-y_trt))
+logs_control <- log(y_control/(n_control-y_control))
+svar_trt <- (1/y_trt)+(1/(n_trt-y_trt))
+svar_control <- (1/y_control)+(1/(n_control-y_control))
+
+log_odds <- logs_trt-logs_control
+sigma_sampling <- sqrt(svar_trt+svar_control)
+
+
+ybar=log_odds # See page 120 y_j=ybar_{.j}
+sigma2=sigma_sampling^2
+
+#Sampling tau
+marginalposterior <- function(ybar,sigma2,tau2){
+  Vmuinv=sum(1/(sigma2+tau2))
+  mu=sum((1/(sigma2+tau2))*ybar)/Vmuinv
+  ptau=sqrt(1/Vmuinv)*prod(sqrt(1/(sigma2+tau2))*exp(-((ybar-mu)^2)/(2*(sigma2+tau2))))
+}
+
+tau=seq(0.0004, 1, length.out = 5000)
+tau2=tau^2
+
+df_tau <- foreach(i = 1:5000, .combine = c) %do% {
+  marginalposterior(ybar,sigma2,tau2[i])
+}
+
+plot(tau,df_tau, type = "l")
+
+nsamp <- 1000
+samp_indices <- sample(length(df_tau), size = nsamp,
+                       replace = T, prob = df_tau/sum(df_tau))
+tau_vector <- tau[samp_indices]
+tau2_vector <- tau_vector^2
+
+#Sampling mu
+mu_vector=NULL
+for (i in 1:1000){
+  Vmuinv=sum(1/(sigma2+tau2_vector[i]))
+  mu=sum(1/(sigma2+tau2_vector[i])*ybar)/Vmuinv
+  mu_vector[i]=rnorm(1,mu,sqrt(1/Vmuinv))
+}
+quantile(mu_vector, probs = c(0.025,0.25,0.5,0.75,0.975)) #Similar value on Table 5.5
+theta=matrix(nrow=1000,ncol=22)
+VjMat <- matrix(nrow = 1000, ncol = 22)
+
+#Sampling theta_j
+for (k in 1:1000){
+  theta_hat=NULL
+  Vj=NULL
+  for (j in 1:22){
+    theta_hat[k]=((ybar[j]/sigma2[j])+(mu_vector[k]/tau2_vector[k]))/(1/sigma2[j]+1/tau2_vector[k])
+    Vj[k]=1/(1/sigma2[j]+1/tau2_vector[k])
+    VjMat[k,j] <- Vj[k]
+    theta[k,j]=rnorm(1,theta_hat[k],sqrt(Vj[k]))
+  }
+}
+#Posterior means
+PostMean_theta <- colMeans(theta)
+PostVar <- colMeans(VjMat)
+```
+
+## AIC
+
+Here, $k = 22$ since we're estimating the theta parameter for each experiment.
+
+```{r AIC}
+yp1 <- foreach(j = 1:22, .combine = c) %do% {
+  dnorm(ybar[j],mean = log_odds[j], sd = sigma_sampling[j])
+}
+
+AIC <- -2*sum(log(yp1)) + 2*22
+AIC
+```
+
+## DIC
+I assume for the following 3 tests that the variance in the likelihood is fixed, and so the only parameter being estimated by the bayesian model is $\theta_j$.
+
+```{r DIC}
+yp1 <- foreach(j = 1:22, .combine = c) %do% {
+  dnorm(ybar[j],mean = PostMean_theta[j], sd = sqrt(PostVar[j]))
+}
+
+yMat <- matrix(data = ybar,nrow = 1000, ncol = 22, byrow = T)
+varMat <- matrix(data = sigma_sampling,nrow = 1000, ncol = 22, byrow = T)
+yp3 <- mapply(function(x,mean,var){dnorm(x,mean,sd = var)},yMat,theta,sigma_sampling)
+yp2 <- matrix(yp3, nrow = 1000, ncol = 22, byrow = F)
+
+dpic <- 2*sum(log(yp1)) - mean(rowSums(yp2))
+DIC <- -2*sum(log(yp1)) + 2*dpic
+DIC
+```
+
+## WAIC
+
+```{r WAIC}
+t1 <- 2*sum(log(colMeans(yp2)))
+t2 <- 2*sum(colMeans(log(yp2)))
+pwaic <- t1-t2
+WAIC <- -t1+2*pwaic 
+```
+
+## Leave one out Cross Validation
+
+```{r LOOCV}
+LOOCV_Res <- vector("numeric",22L)
+for(x in 1:22){
+  ybar_train <- ybar[-x]
+  ybar_test <- ybar[x]
+  sigma2_train <- sigma2[-x]
+  sigma2_test <- sigma2[x]
+  
+  #Train model on training set
+  mu_vector=NULL
+  for (i in 1:1000){
+    Vmuinv=sum(1/(sigma2_train+tau2_vector[i]))
+    mu=sum(1/(sigma2_train+tau2_vector[i])*ybar_train)/Vmuinv
+    mu_vector[i]=rnorm(1,mu,sqrt(1/Vmuinv))
+  }
+  theta=matrix(nrow=1000,ncol=21)
+  
+  #Sampling theta_j
+  for (k in 1:1000){
+    theta_hat=NULL
+    Vj=NULL
+    for (j in 1:21){
+      theta_hat[k]=((ybar[j]/sigma2_train[j])+(mu_vector[k]/tau2_vector[k]))/
+        (1/sigma2_train[j]+1/tau2_vector[k])
+      Vj[k]=1/(1/sigma2_train[j]+1/tau2_vector[k])
+      theta[k,j]=rnorm(1,theta_hat[k],sqrt(Vj[k]))
+    }
+  }
+  
+  meanTheta <- rowMeans(theta)
+  llpd <- sapply(meanTheta, FUN = function(theta){dnorm(ybar_test,mean = theta,
+                                                        sd = sqrt(sigma2_test))})
+  LOOCV_Res[x] <- log(mean(llpd))
+}
+
+LOOCV <- sum(LOOCV_Res)
+LOOCV
+```
