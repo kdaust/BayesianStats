@@ -1,5 +1,6 @@
 ---
 title: "Stats 460 Project 1"
+subtitle: "V00883780"
 author: "Kiri Daust"
 date: "30/10/2020"
 output: html_document
@@ -11,17 +12,21 @@ library(foreach)
 library(ggplot2)
 ```
 
+## Part 1: Analytic Derivations
+
 a) We can easily find the least squares estimate for $\mu$ by minimising the sums of squares. This gives us that \[\mu = \frac{\sum_{i=1}^n x_iy_i}{\sum_{i=1}^n x_i^2}\]
 
 For this project, we will now assume that $\mu$ is fixed at this values.
 
 b) We know from Bayes' formula that $p(\beta,\tau|y) \propto p(\tau)p(\beta|\tau)p(y|\beta,\tau)$. We know that $p(\tau) = Gamma(\delta_0/2,\gamma_0/2), p(\beta|\tau) = N(\mu,1/\tau)$ and the likelihood is $p(y) = \prod_{i = 1}^n N(\beta x_i, 1/\tau)$. 
 
-Multiplying these together (and removing constants) gives \[p(\beta,\tau|y) = \tau^{\frac{\delta_0}{2} - 1}e^{-\frac{1}{2}\tau\gamma_0}e^{-\frac{1}{2}(\beta-\mu)^2\tau}e^{-\frac{1}{2}\sum(y_i-\beta x_i)^2\tau}\]
+Multiplying these together (and removing constants) gives \[p(\beta,\tau|y) = \tau^{\frac{\delta_0}{2} - 1}\tau^ne^{-\frac{1}{2}\tau\gamma_0}e^{-\frac{1}{2}(\beta-\mu)^2\tau}e^{-\frac{1}{2}\sum(y_i-\beta x_i)^2\tau}\]
 
-Expanding the squares and combining terms then gives \[p(\beta,\tau|y) = {\tau^{\frac{\delta_0 - 1}{2}}e^{-\frac{1}{2}\tau(\gamma_0+(\beta-\mu)^2+\sum(y_i+\beta x_i)^2)}} \\ = Gamma(\frac{\delta_0+1}{2},\frac{1}{2}\tau(\gamma_0+(\beta-\mu)^2+\sum(y_i+\beta x_i)^2)\]
+Expanding the squares and combining terms then gives \[p(\beta,\tau|y) = {\tau^{\frac{\delta_0 +n - 1}{2}}e^{-\frac{1}{2}\tau(\gamma_0+(\beta-\mu)^2+\sum(y_i+\beta x_i)^2)}} \\ = Gamma(\frac{\delta_0+n+1}{2},\frac{1}{2}\tau(\gamma_0+(\beta-\mu)^2+\sum(y_i+\beta x_i)^2)\]
 
-c) To find the conditional distribution, we think of $\tau$ as a constant, and thus have $p(\beta|\tau,y) \propto p(\beta|\tau)p(y|\beta,\tau)$. By multiplying the distributions, we get \[p(\beta|\tau,y) \propto e^{-\frac{1}{2}\tau[(\beta-\mu)^2+\sum(y_i-\beta x_i)^2]} \\ \propto e^{-\frac{1}{2}\tau[\beta^2(\sum x_i^2+1) - 2\beta(\mu-\sum(x_i y_i))]} \\ \propto e^{-\frac{1}{2}\tau(\sum x_i^2 + 1)(\beta - \frac{\mu - \sum x_i y_i}{\sum x_i^2 + 1})^2} \\ \propto N(\frac{\mu - \sum x_i y_i}{\sum x_i^2 + 1},\tau(\sum x_i^2+1))\]
+c) To find the conditional distribution, we think of $\tau$ as a constant, and thus have $p(\beta|\tau,y) \propto p(\beta|\tau)p(y|\beta,\tau)$. By multiplying the distributions, we get \[p(\beta|\tau,y) \propto e^{-\frac{1}{2}\tau[(\beta-\mu)^2+\sum(y_i-\beta x_i)^2]} \\ \propto e^{-\frac{1}{2}\tau[\beta^2(\sum x_i^2+1) - 2\beta(\mu-\sum(x_i y_i))]} \\ \propto e^{-\frac{1}{2}\tau(\sum x_i^2 + 1)(\beta - \frac{\mu - \sum x_i y_i}{\sum x_i^2 + 1})^2} \\ \propto N\left(\frac{\mu - \sum x_i y_i}{\sum x_i^2 + 1},\tau(\sum x_i^2+1)\right)\]
+
+Hence, the posterior mean is $\frac{\mu - \sum x_i y_i}{\sum x_i^2 + 1}$ and the variance is $\tau(\sum x_i^2+1)$.
 
 d) To find the marginal posterior distribution, $p(\beta|y)$ we need to integrate the joint posterior distribution over $\tau$. 
 
@@ -40,25 +45,35 @@ Which after removing constants and completing the square starts to look like the
 
 This is the kernal of a t-distribution.
 
-e) 
+e) To find the marginal posterior of $\tau$, $p(\tau|y)$, we use a similar strategy to part d. We integrate the joint posterior distribution over $\beta$, and find that the integrand become a normal distribution as follows.
 
+\[p(\tau|y) \propto \int{\tau^{\frac{\delta_0 + n - 1}{2}}e^{-\frac{1}{2}\tau(\gamma_0+(\beta-\mu)^2+\sum(y_i+\beta x_i)^2)}}d\beta \\
+\propto \tau^{\frac{\delta_0 + n - 1}{2}}e^{-\frac{\tau}{2}\left(\mu^2+\sum{y_i^2}+\gamma_0 - \frac{(\mu+\sum{x_iy_i})^2}{\sum{x_i^2+1}}\right)}\sqrt{\frac{2\pi}{\tau(\sum x_i^2+1)}}\int{N\left(\frac{\mu+\sum{x_iy_i}}{\sum{x_i^2+1}}, (\tau(\sum x_i^2+1))^{-1}\right)} \\
+\propto \tau^{\frac{\delta_0 + n}{2}-1}e^{-\frac{\tau}{2}\left(\mu^2+\sum{y_i^2}+\gamma_0 - \frac{(\mu+\sum{x_iy_i})^2}{\sum{x_i^2+1}}\right)} \\
+\propto Gamma\left(\frac{\delta_0+n}{2}, \left(\mu^2+\sum{y_i^2}+\gamma_0 - \frac{(\mu+\sum{x_iy_i})^2}{\sum{x_i^2+1}}\right)/2\right)\]
 
+Hence, we have the posterior mean of $\tau$ is \[\frac{\delta_0+n}{\mu^2+\sum{y_i^2}+\gamma_0 - \frac{(\mu+\sum{x_iy_i})^2}{\sum{x_i^2+1}}}\] and the posterior variance is \[\frac{2(\delta_0+n)}{\left(\mu^2+\sum{y_i^2}+\gamma_0 - \frac{(\mu+\sum{x_iy_i})^2}{\sum{x_i^2+1}}\right)^2}\]
+
+## Part 2: Fitting Model
+
+Now that we have derived the posterior distributions of the data, we shall fit the model to the "Stackloss" dataset to estimate the parameter $\beta$ of a linear regression with no intercept (Stackloss ~ Airflow). To estimate the hyperparameters $\delta_0 \text{ and } \gamma_0$, we will use the matching moments method. We know that $\tau^{-1}$ is the data variance, which is 103.46. By setting $E(\tau) = 1/103.46$ and $Var(\tau) = 10/103.46$, we end up with two equations based on the gamma distribution, and can solve for the hyperparameters, finding \[\delta_0 = 0.0019, \gamma_0 = 0.2.\]
+
+To sample $\beta$ from the join posterior distribution, we will factor it as $p(\beta,\tau|y) = p(\beta|\tau,y)p(\tau|y)$ and can simulate first from $\tau$ and then use those values to simulate from $\beta$. As expected, we find that the mean of the posterior distribution for $\beta$ is very similar to the least-squares estimate used for $\mu$.
 
 ```{r f}
 data("stackloss")
 
 mod1 <- lm(stack.loss ~ 0 + Air.Flow, data = stackloss)
-plot(stack.loss ~ Air.Flow, data = stackloss)
-abline(mod1)
-plot(mod1$residuals)
 x <- stackloss$Air.Flow
 y <- stackloss$stack.loss
 
-resid <- mod1$residuals
+##delta_0 and gamma_0 values from matching moments
 delta0 <- 0.0019
 gamma0 <- 0.2
+##mu = LSE
 muhat <- sum(x*y)/sum(x^2)
 
+##calculate parameters for p(tau|y)
 tau_post <- function(x,y,mu,delta0,gamma0){
   alpha <- (delta0 + length(y))/2
   beta <- (mu^2+sum(y^2)+gamma0-((mu+sum(x*y))^2)/(sum(x^2)+1))/2
@@ -67,27 +82,54 @@ tau_post <- function(x,y,mu,delta0,gamma0){
 
 tau_params <- tau_post(x,y,muhat,delta0,gamma0)
 tau_mean <- tau_params[1]/tau_params[2]
+##Posterior mean data variance
 1/tau_mean
+## simulate 100 values from gamma distribution
 tau_sim <- rgamma(100,tau_params[1],tau_params[2])
-hist(tau_sim)
+hist(tau_sim, main = "Tau Posterior")
 
+## Calculate parameters for p(beta|tau,y)
 beta_cond_post <- function(x,y,muhat,tau){
   mu <- (muhat + sum(x*y))/((sum(x^2)+1))
   sigma2 <- 1/(tau*(sum(x^2)+1))
   return(c(mu,sigma2))
 }
 
-##beta_params <- beta_cond_post(x,y,muhat,0.016)
-
+##for each value of tau, simulate 100 draws from conditional beta distribution
 beta_sim <- foreach(i = 1:100, .combine = c) %do% {
   beta_params <- beta_cond_post(x,y,muhat,tau_sim[i])
   rnorm(100, beta_params[1],sqrt(beta_params[2]))
 }
-hist(beta_sim)
+
+hist(beta_sim, main = "Beta Posterior")
+##Mean
 mean(beta_sim)
+##Varience
 var(beta_sim)
-quantile(beta_sim, c(0.05,0.25,0.5,0.75,0.95))
+##Quantiles
+quant <- quantile(beta_sim, c(0.05,0.25,0.5,0.75,0.95))
+quant
+
+xtemp <- seq(50,80,by = 0.1)
+plot(y ~ x, xlab = "Airflow", ylab = "Stackloss", main = "Stackloss with fitted 5%,50%, and 95% regression lines")
+lines(x = xtemp, y = quant[3]*xtemp,col = "purple")
+lines(x = xtemp, y = quant[1]*xtemp,col = "red")
+lines(x = xtemp, y = quant[5]*xtemp,col = "red")
 ```
+## Part 3: Sensitivity Analysis
+
+To test the sensitivity of the model to the prior distribution, we will try using a different prior, $p(\beta,\tau) = \tau^{-1}$. To simulate the posterior distribution of $\beta$, we must find the posterior distributions $p(\tau|y),p(\beta|\tau,y)$. We will start with the joint posterior density (joint prior times likelihood); this is easy to derive as \[\tau^{n-1}e^{-\frac{1}{2}\tau\sum(y_i - \beta x_i)^2}\]
+
+Finding the conditional posterior distribution of $\beta$ is also straightforwards as it becomes a normal distribution once the constant terms are removed: \[p(\beta|\tau,y) \propto e^{-\frac{1}{2}\tau\sum(x_i y_i)^2} \\
+\propto  e^{-\frac{1}{2}\tau\sum x_i^2 \left(\beta - \frac{\sum{x_iy_i}}{\sum{x_i^2}} \right)} \\ 
+\propto N\left(\frac{\sum{x_iy_i}}{\sum{x_i^2}}, \frac{1}{\tau\sum{x_i^2}}\right) \]
+
+The last distribution we need is the marginal posterior distribution for $\tau$; we find this as before by integrating out $\beta$ from the joint posterior distribution: \[p(\tau|y) \propto \int{\tau^{n-1}e^{-\frac{1}{2}\tau\sum(y_i - \beta x_i)^2}}d\beta \\
+\propto \tau^{n-1}\tau^{-\frac{1}{2}} e^{-\frac{\tau}{2}(\sum y_i^2-\frac{(\sum x_iy_i)^2}{\sum x_i^2})} \\
+\propto \tau^{\frac{n-1}{2}-1} e^{-\frac{\tau}{2}(\sum y_i^2-\frac{(\sum x_iy_i)^2}{\sum x_i^2})} \\
+\propto Gamma\left(\frac{n-1}{2}, \frac{\sum y_i^2-\frac{(\sum x_iy_i)^2}{\sum x_i^2}}{2}\right)\]
+
+Now that we have the posterior distributions for the new prior, we employ the same method as in part 2 to simulate the posterior distribution of $\beta$.
 
 ```{r g}
 tau_post <- function(x,y){
@@ -98,8 +140,10 @@ tau_post <- function(x,y){
 
 tau_params <- tau_post(x,y)
 tau_mean <- tau_params[1]/tau_params[2]
+
+##Simulate tau from gamma
 tau_sim_v2 <- rgamma(100,tau_params[1],tau_params[2])
-hist(tau_sim_v2)
+quantile(tau_sim_v2, c(0.05,0.25,0.5,0.75,0.95))
 
 beta_cond_post <- function(x,y,muhat,tau){
   mu <- (muhat + sum(x*y))/((sum(x^2)+1))
@@ -107,20 +151,31 @@ beta_cond_post <- function(x,y,muhat,tau){
   return(c(mu,sigma2))
 }
 
+##simulate beta from normal
 beta_sim_v2 <- foreach(i = 1:100, .combine = c) %do% {
   beta_params <- beta_cond_post(x,y,muhat,tau_sim_v2[i])
   rnorm(100, beta_params[1],sqrt(beta_params[2]))
 }
-hist(beta_sim_v2)
+hist(beta_sim_v2, main = "Beta Posterior New Prior")
+```
+We notice that the posterior distribution for beta looks very similar to part 2, so it doesn't seem like changing the prior had much effect. Also, by comparing the two posterior distributions (below) it seems like there is no more difference between the distributions than we would expect from random simulation chance.
 
+```{r p2}
 dat <- data.frame(Prior = rep(c("Prior1","Prior2"), each = 10000), Sims = c(beta_sim, beta_sim_v2))
 
 ggplot(dat, aes(x = Sims, colour = as.factor(Prior)))+
-  geom_density()
+  geom_density()+
+  ggtitle("Beta Posterior Comparison")
 
 ```
+## Part 4: Model Checking
+
+To see if our model is reasonable, we will return to the original prior, and simulate data from the posterior predictive distribution We will use 4 test-statistics to compare the simulated data to the actual data: min,mean,max, and standard deviation.  
+
+Based on these test statistics, it looks like the model is reasonable, but not excellent; none of the statistics are too far on the tails, although some are further from the centre than would be ideal. 
 
 ```{r h}
+## Use previous tau and beta simulations to produce yreps
 yreps <- foreach(b = 1:10000, .combine = cbind) %do% {
     tCurr <- tau_sim[ceiling(b/100)]
     bCurr <- beta_sim[b]
@@ -131,20 +186,24 @@ yreps <- foreach(b = 1:10000, .combine = cbind) %do% {
 library(matrixStats)
 t1 <- colMeans(yreps)
 d1 <- mean(y)
+p1 <- length(t1[t1 <= d1])/length(t1)
 t2 <- colMaxs(yreps)
 d2 <- max(y)
+p2 <- length(t2[t2 <= d2])/length(t2)
 t3 <- colMins(yreps)
 d3 <- min(y)
+p3 <- length(t3[t3 <= d3])/length(t3)
 t4 <- colSds(yreps)
 d4 <- sd(y)
+p4 <- length(t4[t4 <= d4])/length(t4)
 
-hist(t1, main = "Mean")
+hist(t1, main = paste0("Mean: p = ",round(p1,digits = 2)))
 abline(v = d1, col = "red")
-hist(t2, main = "Max")
+hist(t2, main = paste0("Max: p = ",round(p2,digits = 2)))
 abline(v = d2, col = "red")
-hist(t3, main = "Min")
+hist(t3, main = paste0("Min: p = ",round(p3,digits = 2)))
 abline(v = d3, col = "red")
-hist(t4, main = "Sd")
+hist(t4, main = paste0("Sd: p = ",round(p4,digits = 2)))
 abline(v = d4, col = "red")
 
 ```
