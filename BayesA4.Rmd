@@ -1,9 +1,11 @@
 ---
 title: "Bayesian Stats A4"
-subtitle: "V00883780"
 author: "Kiri Daust"
 date: "01/11/2020"
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
+subtitle: V00883780
 ---
 
 ```{r setup, include=FALSE}
@@ -19,6 +21,7 @@ This assignment will compute various predictive accuracy statistics for the beta
 
 ```{r 1.0}
 
+##data
 y_control <- c(3, 14, 11, 127, 27, 6, 152, 48, 37, 188, 52, 47, 16, 45, 31, 
 38, 12, 6, 3, 40, 43, 39)
 y_trt <- c(3, 7, 5, 102, 28, 4, 98, 60, 25, 138, 64, 45, 9, 57, 25, 33, 
@@ -27,7 +30,6 @@ n_control <- c(39, 116, 93, 1520, 365, 52, 939, 471, 282, 1921, 583, 266,
 293, 883, 147, 213, 122, 154, 134, 218, 364, 674)
 n_trt <- c(38, 114, 69, 1533, 355, 59, 945, 632, 278, 1916, 873, 263, 
 291, 858, 154, 207, 251, 151, 174, 209, 391, 680)
-
 
 #Compute log of the odds ratio
 logs_trt <- log(y_trt/(n_trt-y_trt))
@@ -38,8 +40,7 @@ svar_control <- (1/y_control)+(1/(n_control-y_control))
 log_odds <- logs_trt-logs_control
 sigma_sampling <- sqrt(svar_trt+svar_control)
 
-
-ybar=log_odds # See page 120 y_j=ybar_{.j}
+ybar=log_odds
 sigma2=sigma_sampling^2
 
 #Sampling tau
@@ -56,8 +57,6 @@ df_tau <- foreach(i = 1:5000, .combine = c) %do% {
   marginalposterior(ybar,sigma2,tau2[i])
 }
 
-plot(tau,df_tau, type = "l")
-
 nsamp <- 1000
 samp_indices <- sample(length(df_tau), size = nsamp,
                        replace = T, prob = df_tau/sum(df_tau))
@@ -71,7 +70,7 @@ for (i in 1:1000){
   mu=sum(1/(sigma2+tau2_vector[i])*ybar)/Vmuinv
   mu_vector[i]=rnorm(1,mu,sqrt(1/Vmuinv))
 }
-quantile(mu_vector, probs = c(0.025,0.25,0.5,0.75,0.975)) #Similar value on Table 5.5
+quantile(mu_vector, probs = c(0.025,0.25,0.5,0.75,0.975))
 theta=matrix(nrow=1000,ncol=22)
 VjMat <- matrix(nrow = 1000, ncol = 22)
 
@@ -93,7 +92,7 @@ PostVar <- colMeans(VjMat)
 
 ## AIC
 
-Here, $k = 22$ since we're estimating the theta parameter for each experiment.
+Here, $k = 22$ since we're estimating the theta parameter for each experiment. For the $\hat{\theta}_{mle}$, we use the estimated mean and variance for each experiment, since we're assuming normal distributions and thus $\mu$ and $\sigma^2$ are the mle.
 
 ```{r AIC}
 yp1 <- foreach(j = 1:22, .combine = c) %do% {
@@ -105,6 +104,7 @@ AIC
 ```
 
 ## DIC
+
 I assume for the following 3 tests that the variance in the likelihood is fixed, and so the only parameter being estimated by the bayesian model is $\theta_j$.
 
 ```{r DIC}
@@ -129,6 +129,7 @@ t1 <- 2*sum(log(colMeans(yp2)))
 t2 <- 2*sum(colMeans(log(yp2)))
 pwaic <- t1-t2
 WAIC <- -t1+2*pwaic 
+WAIC
 ```
 
 ## Leave one out Cross Validation
