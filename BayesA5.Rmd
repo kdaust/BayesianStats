@@ -1,0 +1,182 @@
+---
+title: "Bayesian Stats A5"
+author: "Kiri Daust"
+date: "14/11/2020"
+output:
+  pdf_document: default
+  html_document: default
+subtitle: V00883780
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(invgamma)
+library(spate)
+library(ggplot2)
+library(ggmcmc)
+library(foreach)
+library(data.table)
+library(datarium)
+library(matrixStats)
+library(MASS)
+
+data("marketing",package = "datarium")
+```
+
+a) This data set investigates how money spent on advertising in three outlets (Youtube, Facebook, and Newspapers) influenced the company sales. For this linear regression, we are interested in estimating parameters linking these independant variables to sales. The linear model could be written as \[\text{sales} = \beta_0+\beta_1\text({youtube})+\beta_2\text({facebook}) + \beta_3\text({newspaper}) + \epsilon\] where the parameters of interest are all the beta parameters. The intercept represents the base level of sales with no marketing and $\beta_1,\beta_2,\beta_3$ are the increase in sales per unit of money spent on youtube, facebook, and newspaper marketing respectively.
+
+b) For this analysis, we will use a uniform prior where \[p(\beta,\sigma^2) \propto \sigma^{-2}\] As shown in class, we can then find the full conditionals for $\beta$ and $\sigma^2$: \[p(\beta|\sigma^2,y) \propto N((X^TX)^{-1}X^Ty,(X^TX)^{-1}\sigma^2)\] and \[p(\sigma^2|\beta,y) \propto InvGamma\left(\frac{n}{2},\frac{(y-X\beta)^T(y-X\beta)}{2} \right)\]
+
+Note that in this case, the mean of the multivariate normal is $\hat{\beta}$ which is the LSE estimate of parameters.
+
+c) The code below uses Gibbs sampling with the above full condition distributions to estimate the $\beta$ parameters.
+
+```{r gibbs}
+X <- as.matrix(marketing[,1:3])
+X <- cbind(rep(1,200),X)
+colnames(X)[1] <- "Intercept"
+y <- marketing$sales
+n = length(y)
+
+betahat <- solve(t(X) %*% X) %*% t(X) %*% y ##LSE
+Vbeta <- solve(t(X) %*% X) 
+
+betaSim <- matrix(nrow = 4, ncol = 25001)
+betaSim[,1] <- betahat ##use LSE as initial values for beta
+sigmaSim <- numeric(length = 25000)
+
+##run MCMC with 25000 iterations
+for(i in 1:25000){
+  temp_sigma <- (t(y - X%*%betaSim[,i]))%*%(y - X%*%betaSim[,i]) 
+  sigmaSim[i] <- rinvgamma(1,shape = n/2, rate = temp_sigma/2)##sample sigma2 from inverse gamma
+  betaSim[,i+1] <- mvrnorm(n = 1, mu = betahat, Sigma = Vbeta*sigmaSim[i])##sample beta from multivariate normal
+}
+
+##remove burn in and thin
+betaPost <- betaSim[,seq(5001,25001, by = 30)]
+
+```
+
+d) The following code summarises the estimates for the beta parameters and creates a histogram for each parameter.
+
+```{r summary}
+par(mfrow = c(2,2))
+hist(betaPost[1,],xlab = "Simulations", main = "Intercept")
+hist(betaPost[2,],xlab = "Simulations", main = "Youtube")
+hist(betaPost[3,],xlab = "Simulations", main = "Facebook")
+hist(betaPost[4,],xlab = "Simulations", main = "Newspaper")
+
+###calculate quantiles
+betaQuantile <- apply(betaPost, 1, 
+                      FUN = function(x){quantile(x,probs = c(0.05,0.25,0.5,0.75,0.95))})
+colnames(betaQuantile) <- rownames(betahat)
+temp <- cbind(rowMeans(betaPost),rowSds(betaPost))
+colnames(temp) <- c("Mean","Sd")
+betaQuantile <- rbind(betaQuantile,t(temp))
+
+knitr::kable(betaQuantile, digits = 3, caption = "Posterior Summaries")
+```
+
+e) The table below shows 95% credible intervals for each parameter. Based on this, it looks like all parameters are significant except for newspapers, whose interval straddles zero. Indeed, looking at a plot of Newspaper spending vs sales does not show any apparent patterns. It is interesting that although the parameter for youtube spending is much lower than for facebook spending, it has low variance, and thus has a significant effect on sales. However, it may not be the best bang for you buck if advertising money is limited.
+
+```{r 90cred}
+credInt <- apply(betaPost, 1, FUN = function(x){quantile(x,probs = c(0.025,0.975))})
+colnames(credInt) <- rownames(betahat)
+knitr::kable(credInt,digits = 3, caption = "95% Credible Intervals for Beta Params")
+```
+
+f) I have turned the Gibbs sampler from above into a function to make it easier to run 5 chains. I present two figures below to investigate the convergence of the chains - a trace plot, and a running average plot. Both of these plots show that the 5 chains are converging and mixing well. 
+
+```{r chains}
+## function to create mcmc chains
+mcmcGibbs <- function(betahat,Vbeta,X,y){
+  n = length(y)
+  betahat <- solve(t(X) %*% X) %*% t(X) %*% y
+  Vbeta <- solve(t(X) %*% X)
+  
+  betaSim <- matrix(nrow = 4, ncol = 25001)
+  betaSim[,1] <- betahat
+  sigmaSim <- numeric(length = 25000)
+  for(i in 1:25000){
+    temp_sigma <- (t(y - X%*%betaSim[,i]))%*%(y - X%*%betaSim[,i]) 
+    sigmaSim[i] <- rinvgamma(1,shape = n/2, rate = temp_sigma/2)
+    betaSim[,i+1] <- mvrnorm(n = 1, mu = betahat, Sigma = Vbeta*sigmaSim[i])
+  }
+  
+  betaPost <- betaSim[,seq(5001,25001, by = 30)]
+  return(betaPost)
+}
+
+###create 5 chains
+chainResults <-  foreach(j = 1:5, .combine = rbind) %do% {
+  temp <- mcmcGibbs(betahat,Vbeta, X,y)
+  temp <- cbind(rep(j,4),temp)
+  temp
+}
+
+###convert to ggmcmc format for easy plotting
+chainResults <- as.data.table(chainResults)
+chainResults[,Parameter := rep(c("Intercept","Youtube","Facebook","Newspaper"),5)]
+chains2 <- melt(chainResults, id.vars = c("V1","Parameter"))
+chains2[,variable := gsub("V","",variable)]
+setnames(chains2, c("Chain","Parameter","Iteration","value"))
+setcolorder(chains2, c("Chain","Iteration","Parameter","value"))
+chains2[,Iteration := as.numeric(Iteration)-1]
+
+chains2 <- as_tibble(chains2)
+attr(chains2, "nChains") <- 5
+attr(chains2, "nParameters") <- 4
+attr(chains2, "nIterations") <- 667
+attr(chains2, "nBurnin") <- 5000
+attr(chains2, "nThin") <- 30
+
+ggs_traceplot(chains2)
+ggs_running(chains2)
+```
+
+The code below calculates $\hat{R}$ values. We can see that the values for all parameters are very close to 1, suggesting that there would be very little improvement with increased iterations.
+
+```{r rhat}
+calcRhat <- function(temp,n){
+  temp <- t(temp)
+  temp <- cbind(temp[1:n,],temp[(n+1):nrow(temp),])
+  m = ncol(temp)
+  
+  v.j <- colMeans(temp)
+  v.. <- mean(v.j)
+  B <- sum((v.j - v..)^2)*(n/(m-1))
+  
+  tempDat <- t(apply(temp, 1, FUN = function(x){(x - v.j)^2}))
+  sj2 <- colSums(tempDat)/(n-1)
+  W <- mean(sj2)
+  
+  margPostVar <- W*((n-1)/n)+B/n
+  rhat <- sqrt(margPostVar/W)
+  return(rhat)
+}
+
+dat <- as.data.table(chainResults)
+dat <- dat[Parameter == "Intercept",]
+dat[,`:=`(V1 = NULL,V2 = NULL, Parameter = NULL)]
+rhatInt <- calcRhat(temp = dat, n = 333)
+
+dat <- as.data.table(chainResults)
+dat <- dat[Parameter == "Youtube",]
+dat[,`:=`(V1 = NULL,V2 = NULL, Parameter = NULL)]
+rhatYoutube <- calcRhat(temp = dat, n = 333)
+
+dat <- as.data.table(chainResults)
+dat <- dat[Parameter == "Facebook",]
+dat[,`:=`(V1 = NULL,V2 = NULL, Parameter = NULL)]
+rhatFacebook <- calcRhat(temp = dat, n = 333)
+
+dat <- as.data.table(chainResults)
+dat <- dat[Parameter == "Newspaper",]
+dat[,`:=`(V1 = NULL,V2 = NULL, Parameter = NULL)]
+rhatNewspaper <- calcRhat(temp = dat, n = 333)
+
+rHatDat <- data.table(Parameter =c("Intercept","Youtube","Facebook","Newspaper"),
+                      RHat = c(rhatInt,rhatYoutube,rhatFacebook,rhatNewspaper))
+
+knitr::kable(rHatDat, digits = 3, caption = "Rhat values for each parameter on 5 chains")
+```
