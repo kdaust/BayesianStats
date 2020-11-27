@@ -13,7 +13,21 @@ library(R.matlab)
 ```
 
 ```{r}
+load("BayesProj.Rdata")
+X <- dat$X
+y <- dat$Y
 
+sigma2_start 
+beta_start
+beta_sim
+sigmaSim
+
+Dinv <- diag(tauInv)
+Ainv <- solve(t(X)%*%X + Dinv)
+tauInv <- function(lambda,sigma2,beta){
+  t1 <- sqrt((lambda^2*sigma2)/beta^2)
+  return(rinvGauss(n = length(t1), nu = t1, lambda = lambda^2))
+}
 
 ```
 
