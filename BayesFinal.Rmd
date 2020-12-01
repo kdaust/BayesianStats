@@ -43,14 +43,16 @@ deltaParam <- function(pi,tau2,betaj,epsilon){
 betaParam <- function(deltaj,tau2,epsilon,ysquig,x){
   if(deltaj == 0){
     num <- sum(ysquig*x)
-    denom <- sum(x^2) + 300/epsilon
-    return(c(num/denom,1/denom))
+    denom <- sum(x^2)
+    return(c(num/denom,1/(denom+1/tau2)))
   }else{
     num <- sum(ysquig*x)
-    denom <- sum(x^2) + 300/tau2
-    return(c(num/denom,1/denom))
+    denom <- sum(x^2)
+    return(c(num/denom,1/(denom+1/epsilon)))
   }
 }
+
+ysquig <- ysquiggle(y,X,beta = betaLSE, j = 1)
 
 ysquiggle <- function(y,X,beta,j){
   Xtemp <- X[,-j]
@@ -59,13 +61,14 @@ ysquiggle <- function(y,X,beta,j){
   return(y - XB)
 }
 
-meanval <- matrix(nrow = 10,ncol = 20)
-sigmaval <- matrix(nrow = 10,ncol = 20)
-for(i in 2:20){
+meanval <- matrix(nrow = 10,ncol = 50)
+meanval[,1] <- betaLSE
+sigmaval <- matrix(nrow = 10,ncol = 50)
+for(i in 2:50){
   for(j in 1:p){
-    yCurr <- ysquiggle(y,X,betaSim[,i-1],j)
+    yCurr <- ysquiggle(y,X,meanval[,i-1],j)
     deltaSim[j,i] <- rbernoulli(1,p = deltaParam(piSim[j,i-1],tau2,betaSim[j,i-1],epsilon))
-    bParams <- betaParam(deltaTest[j],tau2,epsilon,yCurr,X[,j])
+    bParams <- betaParam(deltaSim[j,i],tau2,epsilon,yCurr,X[,j])
     meanval[j,i] <- bParams[1]
     sigmaval[j,i] <- bParams[2]
     betaSim[j,i] <- rnorm(1,mean = bParams[1] ,sd = sqrt(bParams[2]))
