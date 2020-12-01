@@ -1,0 +1,79 @@
+---
+title: "Stats 460 Final Project"
+author: "Kiri Daust"
+date: "30/11/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(data.table)
+library(foreach)
+library(tidyverse)
+load("BayesProj.Rdata")
+```
+
+```{r}
+X <- dat$X
+y <- dat$Y
+
+lmfit <- lm(y ~ 0 + X) ##run linear model to get coefficients
+betaLSE <- lmfit$coefficients
+p <- 10
+n <- 300
+
+epsilon <- 10^(-4)
+tau2 <- 10^2
+api <- 1; bpi <- 1
+
+niter <- 10000
+piSim <- matrix(nrow = p, ncol = niter)
+piSim[,1] <- 0.05
+deltaSim <- matrix(nrow = p, ncol = niter)
+deltaSim[,1] <- 0
+betaSim <- matrix(nrow = p, ncol = niter)
+betaSim[,1] <- betaLSE
+
+deltaParam <- function(pi,tau2,betaj,epsilon){
+  p1 <- pi*exp(-(1/(2*tau2))*betaj^2)
+  p0 <- (((1-pi)*sqrt(tau2))/sqrt(epsilon))*exp(-(1/(2*epsilon))*betaj^2)
+  return(p1/(p1+p0))
+}
+
+betaParam <- function(deltaj,tau2,epsilon,ysquig,x){
+  if(deltaj == 0){
+    num <- sum(ysquig*x)
+    denom <- sum(x^2) + 300/epsilon
+    return(c(num/denom,1/denom))
+  }else{
+    num <- sum(ysquig*x)
+    denom <- sum(x^2) + 300/tau2
+    return(c(num/denom,1/denom))
+  }
+}
+
+ysquiggle <- function(y,X,beta,j){
+  Xtemp <- X[,-j]
+  betaTemp <- beta[-j]
+  XB <- colSums(t(Xtemp)*betaTemp)
+  return(y - XB)
+}
+
+meanval <- matrix(nrow = 10,ncol = 20)
+sigmaval <- matrix(nrow = 10,ncol = 20)
+for(i in 2:20){
+  for(j in 1:p){
+    yCurr <- ysquiggle(y,X,betaSim[,i-1],j)
+    deltaSim[j,i] <- rbernoulli(1,p = deltaParam(piSim[j,i-1],tau2,betaSim[j,i-1],epsilon))
+    bParams <- betaParam(deltaTest[j],tau2,epsilon,yCurr,X[,j])
+    meanval[j,i] <- bParams[1]
+    sigmaval[j,i] <- bParams[2]
+    betaSim[j,i] <- rnorm(1,mean = bParams[1] ,sd = sqrt(bParams[2]))
+    piSim[j,i] <- rbeta(1,api/2+deltaSim[j,i],bpi/2-deltaSim[j,i]+1)
+  }
+}
+
+
+
+```
+

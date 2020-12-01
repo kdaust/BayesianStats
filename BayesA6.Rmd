@@ -2,7 +2,10 @@
 title: "Stats 460 A6"
 author: "Kiri Daust"
 date: "27/11/2020"
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
+subtitle: V00883789
 ---
 
 ```{r setup, include=FALSE}
@@ -10,24 +13,87 @@ knitr::opts_chunk$set(echo = TRUE)
 library(SuppDists)
 library(invgamma)
 library(R.matlab)
+library(MASS)
+load("BayesProj.Rdata")
 ```
 
+In this assignment, I will perform a Bayesian Lasso Regression (as described in Park and Casella, 2008) on the emailed data set. The lasso regression is a method for variable selection when there are many regressors. I will write the the full conditionals and then implement a Gibbs sampler to estimate $\beta$. Two points to note: I have not included an intercept, since the data does not seem to require one and it wasn't specified, and although the instructions say to fix $\sigma^2 =1$, I have also estimated it in the Gibbs sampler (it ends up being very close to 1).
+
+### Full Conditionals
+
+Note that the matix $\boldsymbol{D_\tau^{-1}}$ is used in the full conditionals. It is defined as being a diagonal matrix with $1/\tau_1^2,...,1/\tau_p^2$ on the diagonal. 
+
+Full Conditional for $\beta$:
+\[p(\boldsymbol{\beta}|\sigma^2,\boldsymbol{\tau},y) = N((\boldsymbol{X^TX}+\boldsymbol{D_\tau^{-1}})^{-1}\boldsymbol{X}^Ty,\sigma^2(\boldsymbol{X^TX}+\boldsymbol{D_\tau^{-1}})^{-1})\]
+
+Full conditional for $\sigma^2$:
+\[p(\sigma^2|\beta,\tau,y) = \text{InvGamma}\left(\frac{n-1}{2}+\frac{p}{2},(y-\boldsymbol{X\beta})^T\frac{(y-\boldsymbol{X\beta})}{2}+\frac{\boldsymbol{\beta^TD_\tau^{-1}\beta}}{2} \right)\]
+
+Full conditional for $1/\tau_1^2,...,1/\tau_p^2$:
+\[p(1/\tau_j^2|\beta_j,\sigma^2,y) = \text{InvGaussian}\left(\sqrt{\frac{\lambda^2\sigma^2}{\beta_j^2}},\lambda^2 \right)\]
+
+Since we only use the inverse of $D$, it makes sense that the third distribution is on $1/\tau^2$ as these values can then be put directly into the diagonal of the matrix. 
+
+The full conditional distributions also require a parameter $\lambda$. This is the Bayesian Lasso Parameter, and controls the penalisation for variable selection. Although the paper recomends including this parameter in the Gibbs sampler and updating it at each iteration, for simplicity we here consider it fixed at \[\lambda = \frac{p \sqrt{\hat{\sigma^2}}}{\sum_{j=1}^p|\hat{\beta_j}|}\]
+where $\hat{\sigma^2}$ and $\hat{\beta}$ are the respective least square estimates. 
+
+I have used the Least Squares estimates for $\beta$ and $\sigma^2$ as starting values for a Gibbs sampler using 25000 iterations.
+
+### Gibbs Sampler
+
 ```{r}
-load("BayesProj.Rdata")
 X <- dat$X
 y <- dat$Y
 
-sigma2_start 
-beta_start
-beta_sim
-sigmaSim
+lmfit <- lm(y ~ 0 + X) ##run linear model to get coefficients
+betaLSE <- lmfit$coefficients
+sigmaLSE <- sigma(lmfit)
+p <- 10
+n <- 300
+lambda_0 <- (p*sigmaLSE)/(sum(abs(betaLSE)))##lambda parameter
 
-Dinv <- diag(tauInv)
-Ainv <- solve(t(X)%*%X + Dinv)
+sigmaSim <- numeric(length = 25000)
+sigmaSim[1] <- sigmaLSE^2
+tauSim <- matrix(nrow = p, ncol = 25000)
+betaSim <- matrix(nrow = p, ncol = 25000)
+betaSim[,1] <- betaLSE
+
 tauInv <- function(lambda,sigma2,beta){
   t1 <- sqrt((lambda^2*sigma2)/beta^2)
   return(rinvGauss(n = length(t1), nu = t1, lambda = lambda^2))
 }
 
+##gibbs sampler
+for(it in 2:25000){
+  tau <- tauInv(lambda_0,sigmaSim[it-1],betaSim[,it-1])##sample tau
+  Dinv <- diag(tau)
+  Ainv <- solve(t(X)%*%X + Dinv)
+  t1 <- t(y - X%*%betaSim[,it-1])%*%(y-X%*%betaSim[,it-1])/2+
+    (t(betaSim[,it-1])%*%Dinv%*%betaSim[,it-1])/2
+  sigmaSim[it] <- rinvgamma(1,(n-1)/2+p/2,t1)##sample sigma
+  tempMean <- Ainv%*%t(X)%*%y
+  betaTemp <- mvrnorm(n = 1, mu = tempMean,Sigma = sigmaSim[it]*Ainv)##sample beta
+  betaSim[,it] <- betaTemp
+}
+
+##thin and remove burnin
+betaThin <- betaSim[,seq(5001,25000, by = 10)]
+sigmaThin <- sigmaSim[seq(5001,25000, by = 10)]
+
+```
+
+### Estimates
+
+I've used a burnin of 5000 and thining of 10. First we see that as expected, the variance is centred around 1. The table below shows quantiles for each beta parameter, and we can see that $\beta_3,\beta_5,\beta_7$ are very close to zero. I also present an example trace plot below to show that the MCMC chain seems to have converged.
+
+```{r plot}
+hist(sigmaThin, main = "Sigma^2 Posterior")
+
+betaQuantile <- apply(betaThin, 1, 
+                      FUN = function(x){quantile(x,probs = c(0.05,0.25,0.5,0.75,0.95))})
+colnames(betaQuantile) <- paste0("Beta_",1:10)
+knitr::kable(betaQuantile, digits = 2, caption = "Posterior Quantiles")
+
+plot(betaThin[2,], type = "l", xlab = "Iteration",ylab = "Beta_2",main = "Trace")
 ```
 
