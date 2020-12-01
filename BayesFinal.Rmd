@@ -26,13 +26,7 @@ epsilon <- 10^(-4)
 tau2 <- 10^2
 api <- 1; bpi <- 1
 
-niter <- 10000
-piSim <- matrix(nrow = p, ncol = niter)
-piSim[,1] <- 0.05
-deltaSim <- matrix(nrow = p, ncol = niter)
-deltaSim[,1] <- 0
-betaSim <- matrix(nrow = p, ncol = niter)
-betaSim[,1] <- betaLSE
+
 
 deltaParam <- function(pi,tau2,betaj,epsilon){
   p1 <- pi*exp(-(1/(2*tau2))*betaj^2)
@@ -54,29 +48,57 @@ betaParam <- function(deltaj,tau2,epsilon,ysquig,x){
 
 ysquig <- ysquiggle(y,X,beta = betaLSE, j = 1)
 
-ysquiggle <- function(y,X,beta,j){
+calc_y <- function(beta,j){
   Xtemp <- X[,-j]
   betaTemp <- beta[-j]
   XB <- colSums(t(Xtemp)*betaTemp)
   return(y - XB)
 }
 
-meanval <- matrix(nrow = 10,ncol = 50)
-meanval[,1] <- betaLSE
-sigmaval <- matrix(nrow = 10,ncol = 50)
+niter <- 50
+piSim <- matrix(nrow = p, ncol = niter)
+piSim[,1] <- 0.05
+deltaSim <- matrix(nrow = p, ncol = niter)
+deltaSim[,1] <- 1
+betaSim <- matrix(nrow = p, ncol = niter)
+betaSim[,1] <- betaLSE
 for(i in 2:50){
+  #XB <- X %*% meanval[,i-1]
+  betaVec <- meanval[,i-1]
   for(j in 1:p){
-    yCurr <- ysquiggle(y,X,meanval[,i-1],j)
-    deltaSim[j,i] <- rbernoulli(1,p = deltaParam(piSim[j,i-1],tau2,betaSim[j,i-1],epsilon))
-    bParams <- betaParam(deltaSim[j,i],tau2,epsilon,yCurr,X[,j])
-    meanval[j,i] <- bParams[1]
-    sigmaval[j,i] <- bParams[2]
+    ysquiggle <- calc_y(beta = betaVec, j = j)
+    deltaSim[j,i] <- rbernoulli(1,p = deltaParam(piSim[j,i-1],tau2,betaVec[j],epsilon))
+    bParams <- betaParam(deltaSim[j,i],tau2,epsilon,ysquiggle,X[,j])
+    betaVec[j] <- bParams[1]
+    # meanval[j,i] <- bParams[1]
+    # sigmaval[j,i] <- bParams[2]
     betaSim[j,i] <- rnorm(1,mean = bParams[1] ,sd = sqrt(bParams[2]))
     piSim[j,i] <- rbeta(1,api/2+deltaSim[j,i],bpi/2-deltaSim[j,i]+1)
   }
 }
 
 
+
+#######################################################################################
+for(i in 2:50){
+  XB <- X %*% betaSim[,i-1]
+  for(j in 1:p){
+    ysquiggle <- y - XB + X[,j]*meanval[,i-1][j]
+    deltaSim[j,i] <- rbernoulli(1,p = deltaParam(piSim[j,i-1],tau2,meanval[j,i-1],epsilon))
+    #betaMeanLSE <- solve(t(X)%*%X)%*%t(X)%*%ysquiggle
+    betaMeanLSE <- lm(ysquiggle ~ 0 + X[,j])$coefficients
+    bParams <- betaParam(deltaSim[j,i],tau2,epsilon,ysquiggle,X[,j])
+    meanval[j,i] <- betaMeanLSE
+    sigmaval[j,i] <- bParams[2]
+    betaSim[j,i] <- rnorm(1,mean = betaMeanLSE ,sd = sqrt(bParams[2]))
+    piSim[j,i] <- rbeta(1,api/2+deltaSim[j,i],bpi/2-deltaSim[j,i]+1)
+  }
+}
+
+meanval <- matrix(nrow = 10,ncol = niter)
+meanval[,1] <- betaLSE
+sigmaval <- matrix(nrow = 10,ncol = niter)
+deltaSim[,1] <- tempDelta
 
 ```
 
