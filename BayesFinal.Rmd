@@ -10,6 +10,7 @@ knitr::opts_chunk$set(echo = TRUE)
 library(data.table)
 library(foreach)
 library(tidyverse)
+library(ggmcmc)
 load("BayesProj.Rdata")
 ```
 
@@ -25,8 +26,6 @@ n <- 300
 epsilon <- 10^(-4)
 tau2 <- 10^2
 api <- 1; bpi <- 1
-
-
 
 deltaParam <- function(pi,tau2,betaj,epsilon){
   p1 <- pi*exp(-(1/(2*tau2))*betaj^2)
@@ -53,32 +52,104 @@ calc_y <- function(beta,j){
   return(y - XB)
 }
 
-niter <- 30000
-piSim <- matrix(nrow = p, ncol = niter)
-piSim[,1] <- 0.05
-deltaSim <- matrix(nrow = p, ncol = niter)
-deltaSim[,1] <- 1
-betaSim <- matrix(nrow = p, ncol = niter)
-betaSim[,1] <- rep(10,p)
-
-for(i in 2:niter){
-  #XB <- X %*% meanval[,i-1]
-  betaVec <- betaSim[,i-1]
-  for(j in 1:p){
-    ysquiggle <- calc_y(beta = betaVec, j = j)
-    deltaSim[j,i] <- rbernoulli(1,p = deltaParam(piSim[j,i-1],tau2,betaVec[j],epsilon))
-    bParams <- betaParam(deltaSim[j,i],tau2,epsilon,ysquiggle,X[,j])
-    betaVec[j] <- bParams[1]
-    # meanval[j,i] <- bParams[1]
-    # sigmaval[j,i] <- bParams[2]
-    betaSim[j,i] <- rnorm(1,mean = bParams[1] ,sd = sqrt(bParams[2]))
-    piSim[j,i] <- rbeta(1,api/2+deltaSim[j,i],bpi/2-deltaSim[j,i]+1)
+mcmcGibbs <- function(numIt, api, bpi, tau2, epsilon){
+  niter <- numIt
+  piSim <- matrix(nrow = p, ncol = niter)
+  piSim[,1] <- 0.05
+  deltaSim <- matrix(nrow = p, ncol = niter)
+  deltaSim[,1] <- 1
+  betaSim <- matrix(nrow = p, ncol = niter)
+  betaSim[,1] <- betaLSE
+  
+  for(i in 2:niter){
+    betaVec <- betaSim[,i-1]
+    for(j in 1:p){
+      ysquiggle <- calc_y(beta = betaVec, j = j)
+      deltaSim[j,i] <- rbernoulli(1,p = deltaParam(piSim[j,i-1],tau2,betaVec[j],epsilon))
+      bParams <- betaParam(deltaSim[j,i],tau2,epsilon,ysquiggle,X[,j])
+      betaVec[j] <- bParams[1]
+      # meanval[j,i] <- bParams[1]
+      # sigmaval[j,i] <- bParams[2]
+      betaSim[j,i] <- rnorm(1,mean = bParams[1] ,sd = sqrt(bParams[2]))
+      piSim[j,i] <- rbeta(1,api/2+deltaSim[j,i],bpi/2-deltaSim[j,i]+1)
+    }
   }
+  return(list(beta = betaSim, pi = piSim, delta = deltaSim))
 }
 
-betaThin <- betaSim[,seq(5001,30000,by = 25)]
-plot(betaThin[5,], type = "l")
+res <- mcmcGibbs(numIt = 30000,api = 1, bpi = 1, tau2 = tau2, epsilon = epsilon)
+betaThin <- res$beta[,seq(5001,30000,by = 15)]
+betaThin <- as.data.table(t(betaThin))
+setnames(betaThin, paste0("Beta_",1:10))
+betaThin[,iter := seq_along(Beta_1)]
+betaLong <- melt(betaThin, id.vars = "iter")
+
+ggplot(betaLong, aes(x = value))+
+  geom_histogram(binwidth = 0.05)+
+  facet_wrap(.~variable,scales = "free_y")
+
+betaThin <- betaSim[,seq(5001,30000,by = 15)]
+plot(betaThin[1,], type = "l")
 #######################################################################################
 
+```
+
+```{r convergence, fig.width=8, fig.height=10}
+###create 5 chains
+chainResults <-  foreach(x = 1:5, .combine = rbind) %do% {
+  cat(".")
+  res <- mcmcGibbs(numIt = 20000,api = 1, bpi = 1, tau2 = tau2, epsilon = epsilon)
+  betaThin <- res$beta[,seq(5001,20000,by = 8)]
+  betaThin <- as.data.table(t(betaThin))
+  betaThin[,Var := "Beta"]
+  
+  piThin <- res$pi[,seq(5001,20000,by = 8)]
+  piThin <- as.data.table(t(piThin))
+  piThin[,Var := "Pi"]
+  
+  out <- rbind(betaThin,piThin)
+  out[,Chain := x]
+  out
+}
+
+chainsBeta <- chainResults[Var == "Beta",]
+setnames(chainsBeta,c(paste0("Beta_",1:10),"Var","Chain"))
+chainsBeta[,Iteration := rep(1:1875,5)]
+chains2 <- melt(chainsBeta, id.vars = c("Var","Chain","Iteration"))
+chains2[,Var := NULL]
+setnames(chains2, c("Chain","Iteration","Parameter", "value"))
+setcolorder(chains2, c("Chain","Iteration","Parameter","value"))
+
+chains2 <- as_tibble(chains2)
+attr(chains2, "nChains") <- 5
+attr(chains2, "nParameters") <- 10
+attr(chains2, "nIterations") <- 20000
+attr(chains2, "nBurnin") <- 5000
+attr(chains2, "nThin") <- 8
+
+ggs_traceplot(chains2)
+
+###now for pi
+chainsBeta <- chainResults[Var == "Pi",]
+setnames(chainsBeta,c(paste0("Pi_",1:10),"Var","Chain"))
+chainsBeta[,Iteration := rep(1:1875,5)]
+chains2 <- melt(chainsBeta, id.vars = c("Var","Chain","Iteration"))
+chains2[,Var := NULL]
+setnames(chains2, c("Chain","Iteration","Parameter", "value"))
+setcolorder(chains2, c("Chain","Iteration","Parameter","value"))
+
+chains2 <- as_tibble(chains2)
+attr(chains2, "nChains") <- 5
+attr(chains2, "nParameters") <- 10
+attr(chains2, "nIterations") <- 20000
+attr(chains2, "nBurnin") <- 5000
+attr(chains2, "nThin") <- 8
+
+ggobj <- ggs_traceplot(chains2)
+
+ggobj+
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
 ```
 
