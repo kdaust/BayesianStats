@@ -35,18 +35,16 @@ deltaParam <- function(pi,tau2,betaj,epsilon){
 }
 
 betaParam <- function(deltaj,tau2,epsilon,ysquig,x){
-  if(deltaj == 0){
+  if(deltaj == 1){
     num <- sum(ysquig*x)
-    denom <- sum(x^2)
-    return(c(num/denom,1/(denom+1/tau2)))
+    denom <- sum(x^2) + 1/tau2
+    return(c(num/denom,1/(denom)))
   }else{
     num <- sum(ysquig*x)
-    denom <- sum(x^2)
-    return(c(num/denom,1/(denom+1/epsilon)))
+    denom <- sum(x^2) + 1/epsilon
+    return(c(num/denom,1/(denom)))
   }
 }
-
-ysquig <- ysquiggle(y,X,beta = betaLSE, j = 1)
 
 calc_y <- function(beta,j){
   Xtemp <- X[,-j]
@@ -55,16 +53,17 @@ calc_y <- function(beta,j){
   return(y - XB)
 }
 
-niter <- 50
+niter <- 30000
 piSim <- matrix(nrow = p, ncol = niter)
 piSim[,1] <- 0.05
 deltaSim <- matrix(nrow = p, ncol = niter)
 deltaSim[,1] <- 1
 betaSim <- matrix(nrow = p, ncol = niter)
-betaSim[,1] <- betaLSE
-for(i in 2:50){
+betaSim[,1] <- rep(10,p)
+
+for(i in 2:niter){
   #XB <- X %*% meanval[,i-1]
-  betaVec <- meanval[,i-1]
+  betaVec <- betaSim[,i-1]
   for(j in 1:p){
     ysquiggle <- calc_y(beta = betaVec, j = j)
     deltaSim[j,i] <- rbernoulli(1,p = deltaParam(piSim[j,i-1],tau2,betaVec[j],epsilon))
@@ -77,28 +76,9 @@ for(i in 2:50){
   }
 }
 
-
-
+betaThin <- betaSim[,seq(5001,30000,by = 25)]
+plot(betaThin[5,], type = "l")
 #######################################################################################
-for(i in 2:50){
-  XB <- X %*% betaSim[,i-1]
-  for(j in 1:p){
-    ysquiggle <- y - XB + X[,j]*meanval[,i-1][j]
-    deltaSim[j,i] <- rbernoulli(1,p = deltaParam(piSim[j,i-1],tau2,meanval[j,i-1],epsilon))
-    #betaMeanLSE <- solve(t(X)%*%X)%*%t(X)%*%ysquiggle
-    betaMeanLSE <- lm(ysquiggle ~ 0 + X[,j])$coefficients
-    bParams <- betaParam(deltaSim[j,i],tau2,epsilon,ysquiggle,X[,j])
-    meanval[j,i] <- betaMeanLSE
-    sigmaval[j,i] <- bParams[2]
-    betaSim[j,i] <- rnorm(1,mean = betaMeanLSE ,sd = sqrt(bParams[2]))
-    piSim[j,i] <- rbeta(1,api/2+deltaSim[j,i],bpi/2-deltaSim[j,i]+1)
-  }
-}
-
-meanval <- matrix(nrow = 10,ncol = niter)
-meanval[,1] <- betaLSE
-sigmaval <- matrix(nrow = 10,ncol = niter)
-deltaSim[,1] <- tempDelta
 
 ```
 
