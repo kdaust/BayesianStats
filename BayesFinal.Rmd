@@ -54,8 +54,8 @@ calc_y <- function(beta,j){
 
 mcmcGibbs <- function(numIt, api, bpi, tau2, epsilon){
   niter <- numIt
-  piSim <- matrix(nrow = p, ncol = niter)
-  piSim[,1] <- 0.05
+  piSim <- numeric(length = niter)
+  piSim[1] <- 0.05
   deltaSim <- matrix(nrow = p, ncol = niter)
   deltaSim[,1] <- 1
   betaSim <- matrix(nrow = p, ncol = niter)
@@ -65,14 +65,14 @@ mcmcGibbs <- function(numIt, api, bpi, tau2, epsilon){
     betaVec <- betaSim[,i-1]
     for(j in 1:p){
       ysquiggle <- calc_y(beta = betaVec, j = j)
-      deltaSim[j,i] <- rbernoulli(1,p = deltaParam(piSim[j,i-1],tau2,betaVec[j],epsilon))
+      deltaSim[j,i] <- rbernoulli(1,p = deltaParam(piSim[i-1],tau2,betaVec[j],epsilon))
       bParams <- betaParam(deltaSim[j,i],tau2,epsilon,ysquiggle,X[,j])
       betaVec[j] <- bParams[1]
       # meanval[j,i] <- bParams[1]
       # sigmaval[j,i] <- bParams[2]
       betaSim[j,i] <- rnorm(1,mean = bParams[1] ,sd = sqrt(bParams[2]))
-      piSim[j,i] <- rbeta(1,api/2+deltaSim[j,i],bpi/2-deltaSim[j,i]+1)
     }
+    piSim[i] <- rbeta(1,api/2+sum(deltaSim[,i]),bpi/2 + p - sum(deltaSim[,i]))
   }
   return(list(beta = betaSim, pi = piSim, delta = deltaSim))
 }
@@ -88,8 +88,7 @@ ggplot(betaLong, aes(x = value))+
   geom_histogram(binwidth = 0.05)+
   facet_wrap(.~variable,scales = "free_y")
 
-betaThin <- betaSim[,seq(5001,30000,by = 15)]
-plot(betaThin[1,], type = "l")
+plot(betaThin$Beta_1, type = "l")
 #######################################################################################
 
 ```
@@ -103,11 +102,11 @@ chainResults <-  foreach(x = 1:5, .combine = rbind) %do% {
   betaThin <- as.data.table(t(betaThin))
   betaThin[,Var := "Beta"]
   
-  piThin <- res$pi[,seq(5001,20000,by = 8)]
-  piThin <- as.data.table(t(piThin))
-  piThin[,Var := "Pi"]
+  # piThin <- res$pi[seq(5001,20000,by = 8)]
+  # piThin <- as.data.table(t(piThin))
+  # piThin[,Var := "Pi"]
   
-  out <- rbind(betaThin,piThin)
+  out <- betaThin
   out[,Chain := x]
   out
 }
