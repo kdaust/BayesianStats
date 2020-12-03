@@ -77,20 +77,6 @@ mcmcGibbs <- function(numIt, api, bpi, tau2, epsilon){
   return(list(beta = betaSim, pi = piSim, delta = deltaSim))
 }
 
-res <- mcmcGibbs(numIt = 30000,api = 1, bpi = 1, tau2 = tau2, epsilon = epsilon)
-betaThin <- res$beta[,seq(5001,30000,by = 15)]
-betaThin <- as.data.table(t(betaThin))
-setnames(betaThin, paste0("Beta_",1:10))
-betaThin[,iter := seq_along(Beta_1)]
-betaLong <- melt(betaThin, id.vars = "iter")
-
-ggplot(betaLong, aes(x = value))+
-  geom_histogram(binwidth = 0.05)+
-  facet_wrap(.~variable,scales = "free_y")
-
-plot(betaThin$Beta_1, type = "l")
-#######################################################################################
-
 ```
 
 ```{r convergence, fig.width=8, fig.height=10}
@@ -100,55 +86,107 @@ chainResults <-  foreach(x = 1:5, .combine = rbind) %do% {
   res <- mcmcGibbs(numIt = 20000,api = 1, bpi = 1, tau2 = tau2, epsilon = epsilon)
   betaThin <- res$beta[,seq(5001,20000,by = 8)]
   betaThin <- as.data.table(t(betaThin))
-  betaThin[,Var := "Beta"]
+  betaThin[,Iteration := seq_along(V1)]
+  betaThin <- melt(betaThin,id.vars = "Iteration")
+  betaThin[,Parameter := paste0("Beta_",gsub("V","",variable))]
+  betaThin[,variable := NULL]
   
-  # piThin <- res$pi[seq(5001,20000,by = 8)]
-  # piThin <- as.data.table(t(piThin))
-  # piThin[,Var := "Pi"]
+  deltaThin <- res$delta[,seq(5001,20000,by = 8)]
+  deltaThin <- as.data.table(t(deltaThin))
+  deltaThin[,Iteration := seq_along(V1)]
+  deltaThin <- melt(deltaThin,id.vars = "Iteration")
+  deltaThin[,Parameter := paste0("Delta_",gsub("V","",variable))]
+  deltaThin[,variable := NULL]
   
-  out <- betaThin
+  piThin <- res$pi[seq(5001,20000,by = 8)]
+  piThin <- as.data.table((piThin))
+  piThin[,Iteration := seq_along(V1)]
+  piThin[,Parameter := "Pi"]
+  setnames(piThin, old = "V1", new = "value")
+  out <- rbind(betaThin,deltaThin,piThin)
   out[,Chain := x]
   out
 }
 
-chainsBeta <- chainResults[Var == "Beta",]
-setnames(chainsBeta,c(paste0("Beta_",1:10),"Var","Chain"))
-chainsBeta[,Iteration := rep(1:1875,5)]
-chains2 <- melt(chainsBeta, id.vars = c("Var","Chain","Iteration"))
-chains2[,Var := NULL]
-setnames(chains2, c("Chain","Iteration","Parameter", "value"))
-setcolorder(chains2, c("Chain","Iteration","Parameter","value"))
+deltaChain <- chainResults[grep("Delta",Parameter),]
+chainResults <- chainResults[!grepl("Delta",Parameter),]
 
-chains2 <- as_tibble(chains2)
+chains2 <- as_tibble(chainResults)
 attr(chains2, "nChains") <- 5
-attr(chains2, "nParameters") <- 10
-attr(chains2, "nIterations") <- 20000
-attr(chains2, "nBurnin") <- 5000
-attr(chains2, "nThin") <- 8
-
-ggs_traceplot(chains2)
-
-###now for pi
-chainsBeta <- chainResults[Var == "Pi",]
-setnames(chainsBeta,c(paste0("Pi_",1:10),"Var","Chain"))
-chainsBeta[,Iteration := rep(1:1875,5)]
-chains2 <- melt(chainsBeta, id.vars = c("Var","Chain","Iteration"))
-chains2[,Var := NULL]
-setnames(chains2, c("Chain","Iteration","Parameter", "value"))
-setcolorder(chains2, c("Chain","Iteration","Parameter","value"))
-
-chains2 <- as_tibble(chains2)
-attr(chains2, "nChains") <- 5
-attr(chains2, "nParameters") <- 10
+attr(chains2, "nParameters") <- 11
 attr(chains2, "nIterations") <- 20000
 attr(chains2, "nBurnin") <- 5000
 attr(chains2, "nThin") <- 8
 
 ggobj <- ggs_traceplot(chains2)
-
 ggobj+
   theme(axis.title.x=element_blank(),
         axis.text.x=element_blank(),
         axis.ticks.x=element_blank())
+```
+
+```{r delta, fig.height=3, fig.width=7}
+deltaChain <- deltaChain[Parameter %in% c("Delta_1","Delta_7"),]
+deltaChain[,Chain := as.factor(Chain)]
+ggplot(deltaChain, aes(x = Iteration, y = value, colour = Chain))+
+  geom_point()+
+  facet_wrap(.~Parameter, scales = "free_y")
+
+```
+
+```{r rhat}
+calcRhat <- function(temp){
+  if(nrow(temp) %% 2 == 1){temp <- temp[-1,]}
+  n = as.integer(nrow(temp)/2)
+  temp <- cbind(temp[1:n,],temp[(n+1):nrow(temp),])
+  m = ncol(temp)
+  
+  v.j <- colMeans(temp)
+  v.. <- mean(v.j)
+  B <- sum((v.j - v..)^2)*(n/(m-1))
+  
+  tempDat <- t(apply(temp, 1, FUN = function(x){(x - v.j)^2}))
+  sj2 <- colSums(tempDat)/(n-1)
+  W <- mean(sj2)
+  
+  margPostVar <- W*((n-1)/n)+B/n
+  rhat <- sqrt(margPostVar/W)
+  return(rhat)
+}
+
+Params <- unique(chainResults$Parameter)
+
+rhat <- foreach(param = Params, .combine = rbind) %do% {
+  dat <- chainResults[Parameter == param,]
+  dat <- dcast(dat, Iteration ~ Chain, value = "value")
+  dat <- as.matrix(dat[,Iteration := NULL])
+  rhatVal <- calcRhat(temp = dat)
+  data.table(Parameter = param, RHat = rhatVal)
+}
+
+knitr::kable(rhat)
+```
+
+```{r results, fig.width=8.5,fig.height=7}
+res <- mcmcGibbs(numIt = 30000,api = 1, bpi = 1, tau2 = tau2, epsilon = epsilon)
+betaThin <- res$beta[,seq(5001,30000,by = 15)]
+betaThin <- as.data.table(t(betaThin))
+betaThin[,Iteration := seq_along(V1)]
+betaThin <- melt(betaThin,id.vars = "Iteration")
+betaThin[,Parameter := paste0("Beta_",gsub("V","",variable))]
+betaThin[,variable := NULL]
+
+piThin <- res$pi[seq(5001,30000,by = 15)]
+piThin <- as.data.table((piThin))
+piThin[,Iteration := seq_along(V1)]
+piThin[,Parameter := "Pi"]
+setnames(piThin, old = "V1", new = "value")
+resAll <- rbind(betaThin,piThin)
+
+ggplot(resAll, aes(x = value))+
+  geom_histogram(binwidth = 0.05)+
+  facet_wrap(.~Parameter,scales = "free_y")
+
+
 ```
 
