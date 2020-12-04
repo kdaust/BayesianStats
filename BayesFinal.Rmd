@@ -1,8 +1,14 @@
 ---
 title: "Stats 460 Final Project"
 author: "Kiri Daust"
+subtitle: "V00883780"
 date: "30/11/2020"
-output: html_document
+output:
+  rmarkdown::pdf_document:
+    fig_caption: yes     
+    includes:  
+      in_header: header.tex
+indent: true
 ---
 
 ```{r setup, include=FALSE}
@@ -11,6 +17,7 @@ library(data.table)
 library(foreach)
 library(tidyverse)
 library(ggmcmc)
+library(matrixStats)
 load("BayesProj.Rdata")
 ```
 
@@ -18,22 +25,18 @@ load("BayesProj.Rdata")
 
 For completeness (and because LaTeX is satisfying), I will present the final distributions here, but will leave their derivations to the Appendix. 
 
-a) The prior for $\beta_j$ represent two different distributions depending on the value of $\delta_j$. We can thus rewrite this as \[p(\beta_j|\delta_j,\tau^2,\epsilon) = N(0,\tau^2)^{\delta_j}N(0,\epsilon)^{1-\delta_j}\] To simply computations, we can rewrite this as 
+a) The prior for $\beta_j$ represents two different distributions depending on the value of $\delta_j$. We can thus rewrite this as \[p(\beta_j|\delta_j,\tau^2,\epsilon) = N(0,\tau^2)^{\delta_j}N(0,\epsilon)^{1-\delta_j}\] To simply computations, we can rewrite this as 
 \[p(\beta_j|\delta_j,\tau^2,\epsilon) \propto e^{-\frac{\delta_j\beta_j^2}{2\tau^2}-\frac{(1-\delta_j)\beta_j^2}{\epsilon}}\]
 
-b) The full condition distribution of $\beta_j$is calculated as the prior * likelihood: \[p(\beta_j|\delta_j,\tau^2,\epsilon,y) = p(\beta_j|\delta_j,\tau^2,\epsilon)\prod_{j =1}^Jp(y|\beta_j)\] where the likelihood is \[p(y|\beta_j) = \prod_{i = 1}^nN(X_{ij}\beta_j,1)\]
+b) The full condition distribution of $\beta_j$is calculated as the prior * likelihood: \[p(\beta_j|\delta_j,\tau^2,\epsilon,y) = p(\beta_j|\delta_j,\tau^2,\epsilon)p(y|\beta)\] where the likelihood is \[p(y|\beta_j) = \prod_{i = 1}^nN(X_{ij}\beta_j,1)\] \  After simplification (see appendix), and defining $\tilde{y}_i = y_i - \sum_{l\neq j}X_{il}\beta_l$, we get the full conditional as \[p(\beta_j|\delta_j,\tau^2,\epsilon,y) \propto N\left(\frac{\sum x_{ij} \tilde{y}_i}{\sum x_{ij}^2+\frac{1}{\tau^2}},(\sum x_{ij}^2+\frac{1}{\tau^2})^{-1} \right)^{\delta_j}N\left(\frac{\sum x_{ij} \tilde{y}_i}{\sum x_{ij}^2+\frac{1}{\epsilon}},(\sum x_{ij}^2+\frac{1}{\epsilon})^{-1} \right)^{1-\delta_j}\] \  As expected based on the prior of $\beta_j$, this posterior distribution separates into two distributions depending on the value of $\delta_j$
 
-After simplification (see appendix), and defining $\tilde{y}_i = y_i - \sum_{l\neq j}X_{il}\beta_l$, we get the full conditional as \[p(\beta_j|\delta_j,\tau^2,\epsilon,y) \propto N\left(\frac{\sum x_{ij} \tilde{y}_i}{\sum x_{ij}^2+\frac{1}{\tau^2}},(\sum x_{ij}^2+\frac{1}{\tau^2})^{-1} \right)^{\delta_j}N\left(\frac{\sum x_{ij} \tilde{y}_i}{\sum x_{ij}^2+\frac{1}{\epsilon}},(\sum x_{ij}^2+\frac{1}{\epsilon})^{-1} \right)^{1-\delta_j}\]
+c) The full conditional distribution for $\delta_j$ can be found as \[p(\delta_j|\pi,\tau^2,\epsilon,\beta_j) = p(\delta_j|\pi)p(\beta_j|\delta_j,\tau^2,\epsilon)\] which as shown in the appendix, is proportional to \[\text{Bernoulli}\left(\frac{\pi e^{-\frac{\beta_j^2}{2\tau^2}}}{\pi e^{-\frac{\beta_j^2}{2\tau^2}} + \frac{(1-\pi)\tau}{\sqrt{\epsilon}}e^{-\frac{\beta_j^2}{2\epsilon}}} \right)\]
 
-As expected based on the prior of $\beta_j$, this posterior distribution separates into two distributions depending on the value of $\delta_j$
-
-c) The full conditional distribution for $\delta_j$ can be found as \[p(\delta_j|\pi,\tau^2,\epsilon,\beta_j) = p(\delta_j|\pi)p(\beta_j|\delta_j,\tau^2,\epsilon)\] which as show in the appendix, is proportional to \[\text{Bernoulli}\left(\frac{\pi e^{-\frac{\beta_j^2}{2\tau^2}}}{\pi e^{-\frac{\beta_j^2}{2\tau^2}} + \frac{(1-\pi)\tau}{\sqrt{\epsilon}}e^{-\frac{\beta_j^2}{2\epsilon}}} \right)\]
-
-d) Our final full condition to derive is $p(\pi|a_\pi,b_\pi,\delta)$ which we find is \[p(\pi|a_\pi,b_\pi)\prod_{j=1}^Jp(\delta_j|\pi) \propto \text{Beta} \left(\frac{a_\pi}{2}+\sum \delta_j,\frac{b_\pi}{2}+n-\sum \delta_j \right)\]
+d) Our final full condition to derive is $p(\pi|a_\pi,b_\pi,\delta)$ which we find is \[p(\pi|a_\pi,b_\pi)\prod_{j=1}^Jp(\delta_j|\pi) \propto \text{Beta} \left(\frac{a_\pi}{2}+\sum \delta_j,\frac{b_\pi}{2}+J-\sum \delta_j \right)\]
 
 #### Gibbs Algorithm
 
-e) Given that we now have all the full conditional distributions, we can easily create a Gibbs Sampler algorithm to sample from the joint posterior distribution. Since $\pi$ is a group parameter we can update it once at each iteration, and then update each $\beta_j$ and $\delta_j$ one by one. I have chosen to updated $\beta_j$ in a mixed way instead of block updates to avoid some odd numerical errors. I present below pseudocode for a Gibbs sampler algorithm
+e) Given that we now have all the full conditional distributions, we can easily create a Gibbs Sampler algorithm to sample from the joint posterior distribution. Since $\pi$ is a group parameter we can update it once at each iteration, and then update each $\beta_j$ and $\delta_j$ one by one. I have chosen to update the $\beta$ vector after each $\beta_j$ is sampled, instead of doing block updates. I present below pseudocode for a Gibbs sampler algorithm.
 
 ```
 initialise pi
@@ -55,7 +58,7 @@ return pi,delta,beta
 
 #### Spike and Slab Variable Selection
 
-f) The goals of variable selection include a) determining which variables of not important predictors, and b) in some way removing these from the main model so they don't effect the other parameters. In frequentest statistics, once a variable is determined to not be an important predictor, it should be removed and the model rerun. The Bayesian Spike and Slab prior approach allows this to happen automatically. Once the parameter for a predictor starts to converge to zero, the Bernoulli variable ($\delta$ in our case) will switch from 1 to 0. When this happens, the full conditional distribution for $\beta$ will change to the $N(0,\epsilon)$ distribution, whose variance in this case is 6 orders of magnitude lower. Thus, once $\beta$ switches to this distribution, the variance is so low that almost all the samples stay around the mean (at zero), and because of that, these predictors have a miniscule effect on the markov chain. The name Spike and Slab is a representation of the two distributions used by $\beta$: the slab represents the higher-variance distribution used when $\delta = 1$ and the spike represents the very narrow distribution when $\delta = 0$.
+f) The goals of variable selection include a) determining which variables of not important predictors, and b) in some way removing these from the main model so they don't effect the other parameters. In frequentest statistics, once a variable is determined to not be an important predictor, it should be removed and the model should be rerun. The Bayesian Spike and Slab prior approach allows this to happen automatically. Once the parameter for a predictor starts to converge to zero, the Bernoulli variable ($\delta$ in our case) will switch from 1 to 0. When this happens, the full conditional distribution for $\beta$ will change to a distribution with very small variance. In our situation, the distribution changes to the one with $\epsilon$ instead of $\tau^2$, and because $\epsilon$ is orders of magnitude lower than $\tau^2$, it reduces the variance of the distribution. Thus, once $\beta$ switches to this distribution, the variance is so low that almost all the samples stay around the mean (at zero), and because of that, these predictors have a miniscule effect on the markov chain. The name Spike and Slab is a representation of the two distributions used by $\beta$: the slab represents the higher-variance distribution used when $\delta = 1$ and the spike represents the very narrow distribution when $\delta = 0$.
 
 #### Implimentation
 
@@ -131,16 +134,11 @@ mcmcGibbs <- function(numIt, api, bpi, tau2, epsilon){
 
 #### Convergence Analysis
 
-h) In the below code I run five chains of the Gibbs sampler algorithm implimented above to investigate trace plots and compute $\hat{R}$ statistics. I've sampled 20,000 values in each chain, and used a burnin of 5000 with a thinning of 8.
-
-Investigation of the traceplots suggests that the chains for all parameters are converging, although there seems to be a lot of autocorrelation with the non-zero $\beta$ parameters, which is noticeable even after thinning. However, all chains seem to be mixing well. I've only presented two traceplots (scatterplots) for $\delta$, one for the near zero parameters (Delta_7) and one for the non-zero parameters (Delta_1); all other plots looked very similar to these two examples. While for the non-zero parameters, $\delta$ always stays at 1, for the near-zero parameters it occasionally jumps from 0 to 1, but relatively infrequently.
-
-The $\hat{R}$ statistics are mostly close to 1, suggesting that the chains are converging. For $\beta_1,\beta_4,\beta_6$ the convergence is not as good, and for $\pi$ the convergence is excellent.
+h) In the below code I run five chains of the Gibbs sampler algorithm implimented above to investigate trace plots and compute $\hat{R}$ statistics. I've sampled 20,000 values in each chain, and used a burnin of 5000 with a thinning of 8.\  Investigation of the traceplots suggests that the chains for all parameters are converging, although there seems to be a lot of autocorrelation with the non-zero $\beta$ parameters, which is noticeable even after thinning. However, all chains seem to be mixing well. I've only presented two traceplots (scatterplots) for $\delta$, one for the near zero parameters (Delta_7) and one for the non-zero parameters (Delta_1); all other plots looked very similar to these two examples. For the non-zero parameters, $\delta$ always stays at 1, and for the near-zero parameters, $\delta$ mostly stays at 0 with occasional jumps to one.\  The $\hat{R}$ statistics are very close to 1, suggesting that the chains are converging; $\beta_4$ may have some convergence issues. The convergence of $\pi$ is excellent.
 
 ```{r traceplots, fig.width=8, fig.height=10, fig.cap="Traceplots for Beta and Pi Parameters"}
 ###create 5 chains
 chainResults <-  foreach(x = 1:5, .combine = rbind) %do% {
-  cat(".")
   res <- mcmcGibbs(numIt = 20000,api = 1, bpi = 1, tau2 = tau2, epsilon = epsilon)
   betaThin <- res$beta[,seq(5001,20000,by = 8)]
   betaThin <- as.data.table(t(betaThin))
@@ -148,14 +146,12 @@ chainResults <-  foreach(x = 1:5, .combine = rbind) %do% {
   betaThin <- melt(betaThin,id.vars = "Iteration")
   betaThin[,Parameter := paste0("Beta_",gsub("V","",variable))]
   betaThin[,variable := NULL]
-  
   deltaThin <- res$delta[,seq(5001,20000,by = 8)]
   deltaThin <- as.data.table(t(deltaThin))
   deltaThin[,Iteration := seq_along(V1)]
   deltaThin <- melt(deltaThin,id.vars = "Iteration")
   deltaThin[,Parameter := paste0("Delta_",gsub("V","",variable))]
   deltaThin[,variable := NULL]
-  
   piThin <- res$pi[seq(5001,20000,by = 8)]
   piThin <- as.data.table((piThin))
   piThin[,Iteration := seq_along(V1)]
@@ -168,7 +164,6 @@ chainResults <-  foreach(x = 1:5, .combine = rbind) %do% {
 
 deltaChain <- chainResults[grep("Delta",Parameter),]
 chainResults <- chainResults[!grepl("Delta",Parameter),]
-
 chains2 <- as_tibble(chainResults)
 attr(chains2, "nChains") <- 5
 attr(chains2, "nParameters") <- 11
@@ -231,7 +226,7 @@ Having shown that the chains have converged (at least reasonably well), I will n
 
 i) Below I present histograms for each $\beta$ parameter, as well as some quantiles, posterior mean and variance, and 95% credible intervals. Parameters $\beta_3,\beta_5,\beta_7$ are not significantly different from zero, and these are the parameters that were almost always chosen by the model to follow the spike distribution. Hence, their variance is much lower than the other parameters. Based on the histogram and credible intervals, all other parameters are significant.
 
-```{r results, fig.width=8.5,fig.height=6}
+```{r results, fig.width=8.5,fig.height=5,fig.cap="Histograms of posterior distributions for Beta and Pi"}
 res_good <- mcmcGibbs(numIt = 30000,api = 1, bpi = 1, tau2 = tau2, epsilon = epsilon)
 betaThin <- res_good$beta[,seq(5001,30000,by = 15)]
 betaThin <- as.data.table(t(betaThin))
@@ -263,12 +258,12 @@ knitr::kable(moments, digits = 3,caption = "Posterior mean and variance")
 credInt <- betaThin[,.(Quant = quantile(value,probs = c(0.025,0.975)),
                     Prob = c(0.025,0.975)), by = .(Parameter)]
 credInt <- dcast(credInt,Prob ~ Parameter, value.var = "Quant")
-knitr::kable(credInt, digits = 2, caption = "95% Credible Intervals")
+knitr::kable(credInt, digits = 3, caption = "95% Credible Intervals")
 ```
 
 #### Sensitivity Analysis
 
-j) To test the sensitivity of the model to the choice of prior, we chose 4 different shaped Beta distributions (instead of the original bathtub prior) and ran the model. The figures below show the shape of each respective Beta prior, and corresponding density plots for three example $\beta$ parameters. There is very little noticeable difference between the distribution of the posterior distributions created with the different priors, suggesting that the model is robust to prior choice. Prior #3 which has the parabolic shape potentially create steeper posterior distributions, but the difference is very small and could be random.
+j) To test the sensitivity of the model to the choice of prior, I chose 4 different shaped Beta distributions (instead of the original bathtub prior) and ran the model. The figures below show the shape of each respective Beta prior (henceforth labelled 1 - 4), and corresponding density plots for three example $\beta$ parameters. I also present a table with the posterior means for each $\beta$ parameter given the different priors. There is very little noticeable difference between the distribution of the posterior distributions created with the different priors, suggesting that the model is robust to prior choice. 
 
 ```{r sensitivity1, fig.width=8,fig.height=4,fig.cap="Shape of four Beta priors"}
 ##values for different priors
@@ -279,9 +274,9 @@ b4 <- c(2,5)
 piParams <- cbind(b1,b2,b3,b4)
 
 saOut <- foreach(x = 1:4, .combine = rbind) %do% {
-  cat(".")
   currParams <- piParams[,x]
-  res <- mcmcGibbs(numIt = 20000,api = currParams[1], bpi = currParams[2], tau2 = tau2, epsilon = epsilon)
+  res <- mcmcGibbs(numIt = 20000,api = currParams[1], 
+                   bpi = currParams[2], tau2 = tau2, epsilon = epsilon)
   betaThin <- res$beta[,seq(5001,20000,by = 8)]
   betaThin <- as.data.table(t(betaThin))
   betaThin[,Iteration := seq_along(V1)]
@@ -305,6 +300,10 @@ ggplot(priorOut,aes(x = x, y = y))+
 ```
 
 ```{r sens2, fig.width=8,fig.height=7,fig.cap="Posterior distributions of example beta parameters using above priors"}
+saOut[,PiParam := paste0("Prior_",PiParam)]
+saOut2 <- saOut[,.(Mean = mean(value)), by = .(Parameter,PiParam)]
+saOut2 <- dcast(saOut2,Parameter ~ PiParam, value.var = "Mean")
+knitr::kable(saOut2, digits = 3, caption = "Posterior Means with different priors")
 betaVals <- saOut[Parameter %in% c("Beta_9","Beta_1","Beta_4"),]
 ggplot(betaVals,aes(x = value))+
   geom_density()+
@@ -313,9 +312,7 @@ ggplot(betaVals,aes(x = value))+
 
 #### Model Checking
 
-k) Finally, we check the model fit to the data by creating 5000 $y^{reps}$ and using mean and median as the test statistics. The test statistics are created from an initial chain of length 30000, with a 5000 burnin and thinning of 5. 
-
-Since the statistics from the real data are very near the center of each distribution, and the p-values are neither close to one nor close to zero, we conclude that the model seems to fit the data reasonably well. 
+k) Finally, we check the model fit to the data by creating 5000 $y^{reps}$ and using mean and median as the test statistics. The replicated data are created from an initial chain of length 30000, with a 5000 burnin and thinning of 5.   Since the statistics from the real data are very near the center of each distribution, and the p-values are neither close to one nor close to zero, we conclude that the model seems to fit the data well. 
 
 ```{r model check, fig.width=8, fig.height = 4, fig.cap= "Histograms of mean and median test statistics"}
 betaThin <- res_good$beta[,seq(5001,30000,by = 5)]
@@ -340,3 +337,5 @@ abline(v = datMean, col = "red")
 hist(postMed, main = paste0("Median: p = ",pMed))
 abline(v = datMed, col = "red")
 ```
+
+## Thank you for a great course!!
