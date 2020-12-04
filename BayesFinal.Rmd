@@ -14,10 +14,54 @@ library(ggmcmc)
 load("BayesProj.Rdata")
 ```
 
+## Part 1: Derivations
+
+For completeness (and because LaTeX is satisfying), I will present the final distributions here, but will leave their derivations to the Appendix. 
+
+a) The prior for $\beta_j$ represent two different distributions depending on the value of $\delta_j$. We can thus rewrite this as \[p(\beta_j|\delta_j,\tau^2,\epsilon) = N(0,\tau^2)^{\delta_j}N(0,\epsilon)^{1-\delta_j}\] To simply computations, we can rewrite this as 
+\[p(\beta_j|\delta_j,\tau^2,\epsilon) \propto e^{-\frac{\delta_j\beta_j^2}{2\tau^2}-\frac{(1-\delta_j)\beta_j^2}{\epsilon}}\]
+
+b) The full condition distribution of $\beta_j$is calculated as the prior * likelihood: \[p(\beta_j|\delta_j,\tau^2,\epsilon,y) = p(\beta_j|\delta_j,\tau^2,\epsilon)\prod_{j =1}^Jp(y|\beta_j)\] where the likelihood is \[p(y|\beta_j) = \prod_{i = 1}^nN(X_{ij}\beta_j,1)\]
+
+After simplification (see appendix), and defining $\tilde{y}_i = y_i - \sum_{l\neq j}X_{il}\beta_l$, we get the full conditional as \[p(\beta_j|\delta_j,\tau^2,\epsilon,y) \propto N\left(\frac{\sum x_{ij} \tilde{y}_i}{\sum x_{ij}^2+\frac{1}{\tau^2}},(\sum x_{ij}^2+\frac{1}{\tau^2})^{-1} \right)^{\delta_j}N\left(\frac{\sum x_{ij} \tilde{y}_i}{\sum x_{ij}^2+\frac{1}{\epsilon}},(\sum x_{ij}^2+\frac{1}{\epsilon})^{-1} \right)^{1-\delta_j}\]
+
+As expected based on the prior of $\beta_j$, this posterior distribution separates into two distributions depending on the value of $\delta_j$
+
+c) The full conditional distribution for $\delta_j$ can be found as \[p(\delta_j|\pi,\tau^2,\epsilon,\beta_j) = p(\delta_j|\pi)p(\beta_j|\delta_j,\tau^2,\epsilon)\] which as show in the appendix, is proportional to \[\text{Bernoulli}\left(\frac{\pi e^{-\frac{\beta_j^2}{2\tau^2}}}{\pi e^{-\frac{\beta_j^2}{2\tau^2}} + \frac{(1-\pi)\tau}{\sqrt{\epsilon}}e^{-\frac{\beta_j^2}{2\epsilon}}} \right)\]
+
+d) Our final full condition to derive is $p(\pi|a_\pi,b_\pi,\delta)$ which we find is \[p(\pi|a_\pi,b_\pi)\prod_{j=1}^Jp(\delta_j|\pi) \propto \text{Beta} \left(\frac{a_\pi}{2}+\sum \delta_j,\frac{b_\pi}{2}+n-\sum \delta_j \right)\]
+
+#### Gibbs Algorithm
+
+e) Given that we now have all the full conditional distributions, we can easily create a Gibbs Sampler algorithm to sample from the joint posterior distribution. Since $\pi$ is a group parameter we can update it once at each iteration, and then update each $\beta_j$ and $\delta_j$ one by one. I have chosen to updated $\beta_j$ in a mixed way instead of block updates to avoid some odd numerical errors. I present below pseudocode for a Gibbs sampler algorithm
+
+```
+initialise pi
+initialise beta with OLS estimate
+for(i = 2...iterations):
+  Assign CurrentBeta = beta[i-1]
+  for(j = 1...J):
+    caluclate y_tilde = y - X*CurrentBeta + X[j]*CurrentBeta[j]
+    calculate delta[i,j] from full conditional distribution (Bernoulli)
+    calculate beta[i,j] from full conditional (mixture Normal)
+    update CurrentBeta[j] = beta[i,j]
+  
+  sample pi[i] from full conditional (Beta)
+  
+return pi,delta,beta
+```
+
+## Part 2: Computation and Analysis
+
+#### Spike and Slab Variable Selection
 
 f) The goals of variable selection include a) determining which variables of not important predictors, and b) in some way removing these from the main model so they don't effect the other parameters. In frequentest statistics, once a variable is determined to not be an important predictor, it should be removed and the model rerun. The Bayesian Spike and Slab prior approach allows this to happen automatically. Once the parameter for a predictor starts to converge to zero, the Bernoulli variable ($\delta$ in our case) will switch from 1 to 0. When this happens, the full conditional distribution for $\beta$ will change to the $N(0,\epsilon)$ distribution, whose variance in this case is 6 orders of magnitude lower. Thus, once $\beta$ switches to this distribution, the variance is so low that almost all the samples stay around the mean (at zero), and because of that, these predictors have a miniscule effect on the markov chain. The name Spike and Slab is a representation of the two distributions used by $\beta$: the slab represents the higher-variance distribution used when $\delta = 1$ and the spike represents the very narrow distribution when $\delta = 0$.
 
-```{r}
+#### Implimentation
+
+g) The code below defines parameters and creates a mcmcGibbs sampler function, which relies on other functions to calculate various parameters. Note that I am not including an intercept in this model; I initially ran it with one, but it was not significant so I removed it for simplicity.
+
+```{r g}
 X <- dat$X
 y <- dat$Y
 
@@ -26,28 +70,31 @@ betaLSE <- lmfit$coefficients
 p <- 10
 n <- 300
 
-epsilon <- 10^(-4)
-tau2 <- 10^2
-api <- 1; bpi <- 1
+epsilon <- 10^(-4) ##spike variance
+tau2 <- 10^2 ##slab variance
+api <- 1; bpi <- 1 ##bathtup prior
 
+## caluclate parameters for full conditional of delta_j
 deltaParam <- function(pi,tau2,betaj,epsilon){
   p1 <- pi*exp(-(1/(2*tau2))*betaj^2)
   p0 <- (((1-pi)*sqrt(tau2))/sqrt(epsilon))*exp(-(1/(2*epsilon))*betaj^2)
   return(p1/(p1+p0))
 }
 
+##calculate parameters of full conditional for beta_j
 betaParam <- function(deltaj,tau2,epsilon,ysquig,x){
-  if(deltaj == 1){
+  if(deltaj == 1){ ##slab
     num <- sum(ysquig*x)
     denom <- sum(x^2) + 1/tau2
     return(c(num/denom,1/(denom)))
-  }else{
+  }else{ ##spike
     num <- sum(ysquig*x)
     denom <- sum(x^2) + 1/epsilon
     return(c(num/denom,1/(denom)))
   }
 }
 
+##calculate y tilde from beta
 calc_y <- function(beta,j){
   Xtemp <- X[,-j]
   betaTemp <- beta[-j]
@@ -55,14 +102,15 @@ calc_y <- function(beta,j){
   return(y - XB)
 }
 
+## Gibbs sampler function
 mcmcGibbs <- function(numIt, api, bpi, tau2, epsilon){
   niter <- numIt
   piSim <- numeric(length = niter)
-  piSim[1] <- 0.05
+  piSim[1] <- 0.05 ##initial value for pi
   deltaSim <- matrix(nrow = p, ncol = niter)
   deltaSim[,1] <- 1
   betaSim <- matrix(nrow = p, ncol = niter)
-  betaSim[,1] <- betaLSE
+  betaSim[,1] <- betaLSE ##initial value for beta
   
   for(i in 2:niter){
     betaVec <- betaSim[,i-1]
@@ -70,10 +118,9 @@ mcmcGibbs <- function(numIt, api, bpi, tau2, epsilon){
       ysquiggle <- calc_y(beta = betaVec, j = j)
       deltaSim[j,i] <- rbernoulli(1,p = deltaParam(piSim[i-1],tau2,betaVec[j],epsilon))
       bParams <- betaParam(deltaSim[j,i],tau2,epsilon,ysquiggle,X[,j])
-      betaVec[j] <- bParams[1]
-      # meanval[j,i] <- bParams[1]
-      # sigmaval[j,i] <- bParams[2]
-      betaSim[j,i] <- rnorm(1,mean = bParams[1] ,sd = sqrt(bParams[2]))
+      betaTemp <- rnorm(1,mean = bParams[1] ,sd = sqrt(bParams[2]))
+      betaVec[j] <- betaTemp
+      betaSim[j,i] <- betaTemp
     }
     piSim[i] <- rbeta(1,api/2+sum(deltaSim[,i]),bpi/2 + p - sum(deltaSim[,i]))
   }
@@ -82,7 +129,15 @@ mcmcGibbs <- function(numIt, api, bpi, tau2, epsilon){
 
 ```
 
-```{r convergence, fig.width=8, fig.height=10}
+#### Convergence Analysis
+
+h) In the below code I run five chains of the Gibbs sampler algorithm implimented above to investigate trace plots and compute $\hat{R}$ statistics. I've sampled 20,000 values in each chain, and used a burnin of 5000 with a thinning of 8.
+
+Investigation of the traceplots suggests that the chains for all parameters are converging, although there seems to be a lot of autocorrelation with the non-zero $\beta$ parameters, which is noticeable even after thinning. However, all chains seem to be mixing well. I've only presented two traceplots (scatterplots) for $\delta$, one for the near zero parameters (Delta_7) and one for the non-zero parameters (Delta_1); all other plots looked very similar to these two examples. While for the non-zero parameters, $\delta$ always stays at 1, for the near-zero parameters it occasionally jumps from 0 to 1, but relatively infrequently.
+
+The $\hat{R}$ statistics are mostly close to 1, suggesting that the chains are converging. For $\beta_1,\beta_4,\beta_6$ the convergence is not as good, and for $\pi$ the convergence is excellent.
+
+```{r traceplots, fig.width=8, fig.height=10, fig.cap="Traceplots for Beta and Pi Parameters"}
 ###create 5 chains
 chainResults <-  foreach(x = 1:5, .combine = rbind) %do% {
   cat(".")
@@ -128,7 +183,7 @@ ggobj+
         axis.ticks.x=element_blank())
 ```
 
-```{r delta, fig.height=3, fig.width=7}
+```{r delta, fig.height=3, fig.width=7,fig.cap = "Scatter plots for example delta parameters"}
 deltaChain <- deltaChain[Parameter %in% c("Delta_1","Delta_7"),]
 deltaChain[,Chain := as.factor(Chain)]
 ggplot(deltaChain, aes(x = Iteration, y = value, colour = Chain))+
@@ -167,10 +222,16 @@ rhat <- foreach(param = Params, .combine = rbind) %do% {
   data.table(Parameter = param, RHat = rhatVal)
 }
 
-knitr::kable(rhat)
+knitr::kable(rhat,digits = 3, caption = "R hat Statistics for Beta and Pi")
 ```
 
-```{r results, fig.width=8.5,fig.height=7}
+## Results
+
+Having shown that the chains have converged (at least reasonably well), I will now present posterior estimates and results from the analysis.
+
+i) Below I present histograms for each $\beta$ parameter, as well as some quantiles, posterior mean and variance, and 95% credible intervals. Parameters $\beta_3,\beta_5,\beta_7$ are not significantly different from zero, and these are the parameters that were almost always chosen by the model to follow the spike distribution. Hence, their variance is much lower than the other parameters. Based on the histogram and credible intervals, all other parameters are significant.
+
+```{r results, fig.width=8.5,fig.height=6}
 res_good <- mcmcGibbs(numIt = 30000,api = 1, bpi = 1, tau2 = tau2, epsilon = epsilon)
 betaThin <- res_good$beta[,seq(5001,30000,by = 15)]
 betaThin <- as.data.table(t(betaThin))
@@ -194,18 +255,22 @@ ggplot(resAll, aes(x = value))+
 quants <- betaThin[,.(Quant = quantile(value,probs = c(0.05,0.25,0.5,0.75,0.95)),
                     Prob = c(0.05,0.25,0.5,0.75,0.95)), by = .(Parameter)]
 quants <- dcast(quants,Prob ~ Parameter, value.var = "Quant")
-knitr::kable(quants, digits = 2)
+knitr::kable(quants, digits = 2,caption = "Posterior Quantiles of Beta")
 
 moments <- betaThin[,.(Mean = mean(value), Var = var(value)), by = .(Parameter)]
-knitr::kable(moments, digits = 3)
+knitr::kable(moments, digits = 3,caption = "Posterior mean and variance")
 
 credInt <- betaThin[,.(Quant = quantile(value,probs = c(0.025,0.975)),
                     Prob = c(0.025,0.975)), by = .(Parameter)]
 credInt <- dcast(credInt,Prob ~ Parameter, value.var = "Quant")
-knitr::kable(credInt, digits = 2)
+knitr::kable(credInt, digits = 2, caption = "95% Credible Intervals")
 ```
 
-```{r sensitivity}
+#### Sensitivity Analysis
+
+j) To test the sensitivity of the model to the choice of prior, we chose 4 different shaped Beta distributions (instead of the original bathtub prior) and ran the model. The figures below show the shape of each respective Beta prior, and corresponding density plots for three example $\beta$ parameters. There is very little noticeable difference between the distribution of the posterior distributions created with the different priors, suggesting that the model is robust to prior choice. Prior #3 which has the parabolic shape potentially create steeper posterior distributions, but the difference is very small and could be random.
+
+```{r sensitivity1, fig.width=8,fig.height=4,fig.cap="Shape of four Beta priors"}
 ##values for different priors
 b1 <- c(5,1)
 b2 <- c(1,3)
@@ -237,13 +302,22 @@ priorOut <- foreach(x = 1:4, .combine = rbind) %do% {
 ggplot(priorOut,aes(x = x, y = y))+
   geom_line()+
   facet_grid(.~PiParam)
+```
 
+```{r sens2, fig.width=8,fig.height=7,fig.cap="Posterior distributions of example beta parameters using above priors"}
 betaVals <- saOut[Parameter %in% c("Beta_9","Beta_1","Beta_4"),]
 ggplot(betaVals,aes(x = value))+
   geom_density()+
   facet_grid(Parameter ~ PiParam)
 ```
-```{r model check, fig.width=8, fig.height = 4}
+
+#### Model Checking
+
+k) Finally, we check the model fit to the data by creating 5000 $y^{reps}$ and using mean and median as the test statistics. The test statistics are created from an initial chain of length 30000, with a 5000 burnin and thinning of 5. 
+
+Since the statistics from the real data are very near the center of each distribution, and the p-values are neither close to one nor close to zero, we conclude that the model seems to fit the data reasonably well. 
+
+```{r model check, fig.width=8, fig.height = 4, fig.cap= "Histograms of mean and median test statistics"}
 betaThin <- res_good$beta[,seq(5001,30000,by = 5)]
 
 yrep <- matrix(nrow = 300, ncol = ncol(betaThin))
