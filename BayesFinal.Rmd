@@ -14,6 +14,9 @@ library(ggmcmc)
 load("BayesProj.Rdata")
 ```
 
+
+f) The goals of variable selection include a) determining which variables of not important predictors, and b) in some way removing these from the main model so they don't effect the other parameters. In frequentest statistics, once a variable is determined to not be an important predictor, it should be removed and the model rerun. The Bayesian Spike and Slab prior approach allows this to happen automatically. Once the parameter for a predictor starts to converge to zero, the Bernoulli variable ($\delta$ in our case) will switch from 1 to 0. When this happens, the full conditional distribution for $\beta$ will change to the $N(0,\epsilon)$ distribution, whose variance in this case is 6 orders of magnitude lower. Thus, once $\beta$ switches to this distribution, the variance is so low that almost all the samples stay around the mean (at zero), and because of that, these predictors have a miniscule effect on the markov chain. The name Spike and Slab is a representation of the two distributions used by $\beta$: the slab represents the higher-variance distribution used when $\delta = 1$ and the spike represents the very narrow distribution when $\delta = 0$.
+
 ```{r}
 X <- dat$X
 y <- dat$Y
@@ -168,15 +171,15 @@ knitr::kable(rhat)
 ```
 
 ```{r results, fig.width=8.5,fig.height=7}
-res <- mcmcGibbs(numIt = 30000,api = 1, bpi = 1, tau2 = tau2, epsilon = epsilon)
-betaThin <- res$beta[,seq(5001,30000,by = 15)]
+res_good <- mcmcGibbs(numIt = 30000,api = 1, bpi = 1, tau2 = tau2, epsilon = epsilon)
+betaThin <- res_good$beta[,seq(5001,30000,by = 15)]
 betaThin <- as.data.table(t(betaThin))
 betaThin[,Iteration := seq_along(V1)]
 betaThin <- melt(betaThin,id.vars = "Iteration")
 betaThin[,Parameter := paste0("Beta_",gsub("V","",variable))]
 betaThin[,variable := NULL]
 
-piThin <- res$pi[seq(5001,30000,by = 15)]
+piThin <- res_good$pi[seq(5001,30000,by = 15)]
 piThin <- as.data.table((piThin))
 piThin[,Iteration := seq_along(V1)]
 piThin[,Parameter := "Pi"]
@@ -187,6 +190,79 @@ ggplot(resAll, aes(x = value))+
   geom_histogram(binwidth = 0.05)+
   facet_wrap(.~Parameter,scales = "free_y")
 
+####point summaries
+quants <- betaThin[,.(Quant = quantile(value,probs = c(0.05,0.25,0.5,0.75,0.95)),
+                    Prob = c(0.05,0.25,0.5,0.75,0.95)), by = .(Parameter)]
+quants <- dcast(quants,Prob ~ Parameter, value.var = "Quant")
+knitr::kable(quants, digits = 2)
 
+moments <- betaThin[,.(Mean = mean(value), Var = var(value)), by = .(Parameter)]
+knitr::kable(moments, digits = 3)
+
+credInt <- betaThin[,.(Quant = quantile(value,probs = c(0.025,0.975)),
+                    Prob = c(0.025,0.975)), by = .(Parameter)]
+credInt <- dcast(credInt,Prob ~ Parameter, value.var = "Quant")
+knitr::kable(credInt, digits = 2)
 ```
 
+```{r sensitivity}
+##values for different priors
+b1 <- c(5,1)
+b2 <- c(1,3)
+b3 <- c(2,2)
+b4 <- c(2,5)
+piParams <- cbind(b1,b2,b3,b4)
+
+saOut <- foreach(x = 1:4, .combine = rbind) %do% {
+  cat(".")
+  currParams <- piParams[,x]
+  res <- mcmcGibbs(numIt = 20000,api = currParams[1], bpi = currParams[2], tau2 = tau2, epsilon = epsilon)
+  betaThin <- res$beta[,seq(5001,20000,by = 8)]
+  betaThin <- as.data.table(t(betaThin))
+  betaThin[,Iteration := seq_along(V1)]
+  betaThin <- melt(betaThin,id.vars = "Iteration")
+  betaThin[,Parameter := paste0("Beta_",gsub("V","",variable))]
+  betaThin[,variable := NULL]
+  betaThin[,PiParam := x]
+  betaThin
+}
+
+xvals <- seq(0,1,by = 0.0001)
+priorOut <- foreach(x = 1:4, .combine = rbind) %do% {
+  currParams <- piParams[,x]
+  yvals <- dbeta(xvals,currParams[1],currParams[2])
+  data.table(x = xvals, y = yvals, PiParam = x)
+}
+
+ggplot(priorOut,aes(x = x, y = y))+
+  geom_line()+
+  facet_grid(.~PiParam)
+
+betaVals <- saOut[Parameter %in% c("Beta_9","Beta_1","Beta_4"),]
+ggplot(betaVals,aes(x = value))+
+  geom_density()+
+  facet_grid(Parameter ~ PiParam)
+```
+```{r model check, fig.width=8, fig.height = 4}
+betaThin <- res_good$beta[,seq(5001,30000,by = 5)]
+
+yrep <- matrix(nrow = 300, ncol = ncol(betaThin))
+for(b in 1:ncol(betaThin)){
+  betaCurr <- betaThin[,b]
+  XB <- colSums(t(X)*betaCurr)
+  yrepCurr <- rnorm(300,mean = XB, sd = 1)
+  yrep[,b] <- yrepCurr
+}
+
+par(mfrow = c(1,2))
+postMean <- colMeans(yrep)
+postMed <- colMedians(yrep)
+datMean <- mean(y)
+datMed <- median(y)
+pMean <- round(length(postMean[postMean > datMean])/length(postMean),digits = 2)
+pMed <- round(length(postMed[postMed > datMed])/length(postMed),digits = 2)
+hist(postMean, main = paste0("Mean: p = ",pMean))
+abline(v = datMean, col = "red")
+hist(postMed, main = paste0("Median: p = ",pMed))
+abline(v = datMed, col = "red")
+```
